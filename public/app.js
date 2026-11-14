@@ -5,7 +5,12 @@ const helpDone = document.querySelector("#help-done");
 
 const activityStorageKey = "end-itt-activity";
 const redirectDraftKey = "end-itt-stripe-draft";
+const teachHashPrefix = "#teach=";
+const recordingPollIntervalMs = 5000;
 let lastRenderedRoute = null;
+let recordingPollTimer = null;
+let recordingPollInFlight = false;
+let recordingRequestVersion = 0;
 
 const fallbackBehaviors = [
   { id: "scrolling", label: "Doom-scroll", ongoingLabel: "Still doom-scrolling" },
@@ -31,6 +36,10 @@ const state = {
   configError: "",
   rules: [],
   rulesError: "",
+  recordings: [],
+  recordingsError: "",
+  recordingsLoaded: false,
+  selectedRecordingId: null,
   activity: readActivity(),
   draft: emptyDraft(),
   editingRuleId: null,
@@ -47,6 +56,7 @@ const state = {
 };
 
 restoreRedirectDraftIfNeeded();
+restoreTeachRequestIfNeeded();
 
 function emptyDraft() {
   return {
@@ -131,6 +141,9 @@ function titleForRule(rule) {
 }
 function ruleAmount(rule) { return [1, 5, 10].includes(rule?.penaltyAmount) ? rule.penaltyAmount : null; }
 function ruleById(id) { return state.rules.find((rule) => rule?.id === id) || null; }
+function recordingById(id) { return state.recordings.find((recording) => recording?.id === id) || null; }
+function recordingStatus(recording) { return ["requested", "recording", "recorded", "cancelled"].includes(recording?.status) ? recording.status : "requested"; }
+function canCancelRecording(recording) { return ["requested", "recording"].includes(recordingStatus(recording)); }
 
 function logoMarkup() {
   return '<span class="brand-lockup" aria-hidden="true"><span class="stop-mark"><span></span></span>Nope</span>';
@@ -155,7 +168,7 @@ function shell(content) {
 }
 
 function renderBottomNav() {
-  const active = state.route === "home" || state.route === "penalty" ? "home" : state.route === "activity" ? "activity" : "rules";
+  const active = state.route === "teach" ? (state.selectedRecordingId ? "rules" : "home") : state.route === "home" || state.route === "penalty" ? "home" : state.route === "activity" ? "activity" : "rules";
   return `<nav class="bottom-nav" aria-label="Main navigation">
     <div class="nav-group">
       <button class="nav-link ${active === "home" ? "active" : ""}" type="button" data-action="home" aria-current="${active === "home" ? "page" : "false"}" aria-label="Home" data-testid="nav-home">${icon("home")}<span>Home</span></button>
@@ -216,6 +229,7 @@ function renderPenalty() {
     </div>
     ${state.draft.legacy ? '<div class="legacy-banner"><strong>Older rule</strong><span>Update it to use this two-step test-card rule. Nothing can be charged until you do.</span></div>' : ""}
     <div class="draft-bubble penalty-description"><span>${draftText(state.draft.description)}</span><button class="text-button" type="button" data-action="edit-description">Change</button></div>
+    <button class="text-button teach-different-action" type="button" data-action="teach-habit">Teach Nope a different habit</button>
     <div class="category-choice">
       <label class="category-inline-label" for="behavior-id">For</label>
       <select id="behavior-id" class="category-select" data-field="behaviorId" aria-label="Choose the closest habit">
@@ -258,7 +272,102 @@ function renderRules() {
     ${state.flash ? `<div class="success-box"><p>${escapeHtml(state.flash)}</p></div>` : ""}
     ${state.rulesError ? `<div class="error-box"><p>${escapeHtml(state.rulesError)}</p><button class="text-button" type="button" data-action="reload-rules">Try again</button></div>` : ""}
     ${state.rules.length ? `<div class="rule-list">${state.rules.map(renderRuleCard).join("")}</div>` : renderEmptyRules()}
+    ${renderLearningHabits()}
   </section>`);
+}
+
+function renderLearningHabits() {
+  const recordings = state.recordings.filter((recording) => recordingStatus(recording) !== "cancelled");
+  if (!recordings.length && !state.recordingsError) return "";
+  return `<section class="learning-section" aria-labelledby="learning-title">
+    <div class="learning-heading"><div><span class="eyebrow">New habits</span><h2 id="learning-title">Learning new habits</h2><p>Examples to help Nope recognize something new. These aren’t active rules yet.</p></div></div>
+    ${state.recordingsError ? `<div class="error-box"><p>${escapeHtml(state.recordingsError)}</p><button class="text-button" type="button" data-action="reload-recordings">Try again</button></div>` : ""}
+    ${recordings.length ? `<div class="learning-list">${recordings.map(renderLearningCard).join("")}</div>` : ""}
+  </section>`;
+}
+
+function renderLearningCard(recording) {
+  const details = recordingStatusDetails(recording);
+  return `<article class="learning-card">
+    <div class="rule-card-top"><div><span class="mode-tag ${escapeHtml(details.tone)}">${escapeHtml(details.label)}</span><h3>${escapeHtml(recording.description)}</h3></div><span class="learning-duration">About ${escapeHtml(recording.durationSeconds)} sec</span></div>
+    <p>${escapeHtml(details.listCopy)}</p>
+    <div class="action-row"><span class="learning-date">Requested ${escapeHtml(formatDate(recording.createdAt))}</span><button class="small-button" type="button" data-action="open-recording" data-id="${escapeHtml(recording.id)}" data-testid="open-recording-${escapeHtml(recording.id)}">Open</button></div>
+  </article>`;
+}
+
+function renderTeach() {
+  const recording = recordingById(state.selectedRecordingId);
+  if (state.selectedRecordingId && !recording && !state.recordingsLoaded) {
+    return shell(`<section class="teach-page" aria-labelledby="teach-title">
+      ${screenTop("rules")}
+      <div class="screen-lead teach-lead"><span class="mode-tag waiting">New habit</span><h1 class="screen-title" id="teach-title" style="margin-top:16px">Show Nope what you mean.</h1><p class="screen-copy">Loading your saved recording request…</p></div>
+    </section>`);
+  }
+  if (state.selectedRecordingId && !recording) {
+    return shell(`<section class="teach-page" aria-labelledby="missing-recording-title">
+      ${screenTop("rules")}
+      <div class="empty-state teach-missing"><span class="empty-icon">${icon("activity")}</span><h1 id="missing-recording-title">That request is not available</h1><p>It may have been removed elsewhere. Your other requests and rules are still here.</p>${state.recordingsError ? `<div class="error-box"><p>${escapeHtml(state.recordingsError)}</p><button class="text-button" type="button" data-action="reload-recordings">Try again</button></div>` : ""}<button class="wide-action" type="button" data-action="rules">Back to my rules</button></div>
+    </section>`);
+  }
+
+  const description = recording ? recording.description : nonEmpty(state.draft.description);
+  return shell(`<section class="teach-page" aria-labelledby="teach-title">
+    ${screenTop(recording ? "rules" : "home")}
+    <div class="screen-lead teach-lead"><span class="mode-tag waiting">New habit</span><h1 class="screen-title" id="teach-title" style="margin-top:16px">Show Nope what you mean.</h1><p class="screen-copy">No match yet. Show Nope a short example so we can work on recognizing it.</p></div>
+    <div class="draft-bubble teach-description"><span>${draftText(description || "Your new habit description")}</span><button class="text-button" type="button" data-action="edit-description">Change</button></div>
+    ${state.flash ? `<div class="success-box"><p>${escapeHtml(state.flash)}</p></div>` : ""}
+    ${recording ? renderRecordingRequest(recording) : renderTeachSetup()}
+    ${renderError("recording")}
+  </section>`);
+}
+
+function renderTeachSetup() {
+  const settingUp = state.busy === "recording-create";
+  return `<section class="teach-guide" aria-labelledby="teach-guide-title">
+    <h2 id="teach-guide-title">Teach it your way</h2>
+    <ol class="teach-steps">
+      <li><strong>Wear the band normally.</strong></li>
+      <li><strong>Capture about 10 seconds</strong> when it happens naturally.</li>
+      <li><strong>Wait for a check</strong> before it can become an active rule.</li>
+    </ol>
+    <p class="teach-note">Don’t repeat a harmful habit just to make a sample. Your recorder needs to be connected before the example can start.</p>
+    <div class="page-action"><button class="wide-action" type="button" data-action="create-recording" data-testid="setup-recording" ${settingUp || !nonEmpty(state.draft.description) ? "disabled" : ""}>${settingUp ? '<span class="spinner" aria-hidden="true"></span>' : ""}Set up recording</button><button class="text-button choose-existing-action" type="button" data-action="choose-existing-habit">Choose an existing habit</button></div>
+  </section>`;
+}
+
+function renderRecordingRequest(recording) {
+  const details = recordingStatusDetails(recording);
+  const cancelling = state.busy === "recording-cancel";
+  return `<section class="recording-request ${escapeHtml(details.tone)}" aria-labelledby="recording-status-title" data-testid="recording-status">
+    <div class="recording-status-top"><span class="icon-disc">${icon(details.icon)}</span><div><span class="mode-tag ${escapeHtml(details.tone)}">${escapeHtml(details.label)}</span><h2 id="recording-status-title">${escapeHtml(details.title)}</h2><p>${escapeHtml(details.copy)}</p></div></div>
+    <div class="recording-facts"><span>Requested example: about ${escapeHtml(recording.durationSeconds)} seconds</span><span>Requested ${escapeHtml(formatDate(recording.createdAt))}</span></div>
+    ${canCancelRecording(recording) ? `<div class="recording-actions"><button class="wide-action secondary" type="button" data-action="cancel-recording" data-testid="cancel-recording" ${cancelling ? "disabled" : ""}>${cancelling ? '<span class="spinner" aria-hidden="true"></span>' : ""}Cancel request</button><button class="text-button choose-existing-action" type="button" data-action="choose-existing-habit">Choose an existing habit</button></div>` : `<div class="recording-actions"><button class="text-button choose-existing-action" type="button" data-action="choose-existing-habit">Choose an existing habit</button></div>`}
+  </section>`;
+}
+
+function recordingStatusDetails(recording) {
+  switch (recordingStatus(recording)) {
+    case "recording": return {
+      label: "Recording", title: "Recording example", tone: "recording", icon: "activity",
+      copy: "Your recorder is capturing this example. You can cancel at any time.",
+      listCopy: "Your recorder is capturing this example.",
+    };
+    case "recorded": return {
+      label: "Recorded", title: "Example recorded", tone: "recorded", icon: "check",
+      copy: "Your example is recorded. The detector still needs to be trained and checked before this habit can become an active rule.",
+      listCopy: "Example recorded. Training and checking are still needed.",
+    };
+    case "cancelled": return {
+      label: "Cancelled", title: "Recording request cancelled", tone: "cancelled", icon: "close",
+      copy: "This request is closed. Start a new request to try again.",
+      listCopy: "This request was cancelled.",
+    };
+    default: return {
+      label: "Requested", title: "Waiting for your recorder", tone: "waiting", icon: "activity",
+      copy: "Your request is saved. Nothing is recording yet.",
+      listCopy: "Your request is saved. Nothing is recording yet.",
+    };
+  }
 }
 
 function renderRuleCard(rule) {
@@ -380,10 +489,12 @@ function renderError(context) {
 function render() {
   const routeChanged = state.route !== lastRenderedRoute;
   root.setAttribute("aria-busy", state.busy ? "true" : "false");
-  const pages = { home: renderHome, penalty: renderPenalty, rules: renderRules, detail: renderDetail, activity: renderActivity };
+  const pages = { home: renderHome, penalty: renderPenalty, rules: renderRules, detail: renderDetail, activity: renderActivity, teach: renderTeach };
   root.innerHTML = (pages[state.route] || renderHome)();
   lastRenderedRoute = state.route;
   updateHelpCopy();
+  syncTeachLocation();
+  syncTeachPolling();
   if (routeChanged) window.requestAnimationFrame(() => window.scrollTo(0, 0));
 }
 
@@ -397,7 +508,7 @@ function updateHelpCopy() {
   }
   if (payment) {
     const stripe = stripeStatus();
-    const match = state.config?.aiMode === "gemini" ? "Habit matching is available." : "Demo matching is active.";
+    const match = state.config?.aiMode === "gemini" ? "A suggested match picks a rule category; it does not confirm detector availability." : "Demo matching can suggest a rule category; it does not confirm detector availability.";
     payment.textContent = stripe.mode === "test"
       ? `${match} Stripe is in test mode${stripe.connected ? " with a connected test card" : "; connect a test card before any server-managed test charge"}.`
       : `${match} Demo penalty means no real money moves.`;
@@ -430,8 +541,120 @@ async function api(path, options = {}) {
   try { response = await fetch(path, request); } catch { throw new Error("Couldn’t reach the local app. Check that it is running, then try again."); }
   let data = null;
   try { data = await response.json(); } catch { /* keep safe local error below */ }
-  if (!response.ok) throw new Error(nonEmpty(data?.error) || `That request could not be completed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(nonEmpty(data?.error) || `That request could not be completed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
   return data || {};
+}
+
+function normalizeRecording(value) {
+  if (!value || typeof value !== "object") return null;
+  const id = nonEmpty(value.id);
+  const description = nonEmpty(value.description);
+  const status = typeof value.status === "string" ? value.status : "";
+  if (!id || !description || !["requested", "recording", "recorded", "cancelled"].includes(status)) return null;
+  return {
+    id,
+    description,
+    status,
+    bandNumber: Number.isInteger(value.bandNumber) ? value.bandNumber : null,
+    durationSeconds: Number.isInteger(value.durationSeconds) && value.durationSeconds > 0 ? value.durationSeconds : 10,
+    createdAt: validDate(value.createdAt) || new Date().toISOString(),
+    updatedAt: validDate(value.updatedAt) || "",
+    sampleCount: Number.isInteger(value.sampleCount) && value.sampleCount > 0 ? value.sampleCount : null,
+  };
+}
+
+function recordingSignature(recording) {
+  return [recording.id, recording.description, recording.status, recording.bandNumber, recording.durationSeconds, recording.createdAt, recording.updatedAt, recording.sampleCount].join("|");
+}
+
+function upsertRecording(value) {
+  const recording = normalizeRecording(value);
+  if (!recording) return false;
+  const index = state.recordings.findIndex((item) => item.id === recording.id);
+  if (index >= 0) {
+    if (recordingSignature(state.recordings[index]) === recordingSignature(recording)) return false;
+    state.recordings.splice(index, 1, recording);
+  } else {
+    state.recordings.unshift(recording);
+  }
+  return true;
+}
+
+function selectRecording(id) {
+  const nextId = nonEmpty(id) || null;
+  if (state.selectedRecordingId === nextId) return;
+  state.selectedRecordingId = nextId;
+  recordingRequestVersion += 1;
+}
+
+function clearSelectedRecording() {
+  state.selectedRecordingId = null;
+  recordingRequestVersion += 1;
+}
+
+async function loadRecordings() {
+  const requestVersion = recordingRequestVersion;
+  state.recordingsLoaded = false;
+  try {
+    const data = await api("/api/recordings");
+    if (requestVersion !== recordingRequestVersion) return;
+    const records = safeArray(data.recordings).map(normalizeRecording).filter(Boolean);
+    state.recordings = records;
+    state.recordingsError = "";
+  } catch (error) {
+    if (requestVersion === recordingRequestVersion) state.recordingsError = `Couldn’t load learning requests: ${messageFor(error)}`;
+  } finally {
+    if (requestVersion === recordingRequestVersion) state.recordingsLoaded = true;
+  }
+}
+
+function currentRecordingIs(id, requestVersion) {
+  return state.selectedRecordingId === id && recordingRequestVersion === requestVersion;
+}
+
+async function refreshSelectedRecording() {
+  const id = nonEmpty(state.selectedRecordingId);
+  if (!id || recordingPollInFlight || state.busy) return false;
+  const requestVersion = recordingRequestVersion;
+  recordingPollInFlight = true;
+  try {
+    const data = await api(`/api/recordings/${encodeURIComponent(id)}`);
+    if (!currentRecordingIs(id, requestVersion)) return false;
+    const changed = upsertRecording(data.recording);
+    if (!recordingById(id)) throw new Error("The recorder returned an incomplete request.");
+    const hadError = state.error?.context === "recording";
+    if (hadError) state.error = null;
+    if (state.route === "teach" && (changed || hadError)) render();
+    return changed;
+  } catch (error) {
+    if (!currentRecordingIs(id, requestVersion)) return false;
+    const message = `Couldn’t refresh this recording request: ${messageFor(error)}`;
+    const changed = state.error?.context !== "recording" || state.error.message !== message;
+    state.error = { context: "recording", message, retry: "retry-recording" };
+    if (state.route === "teach" && changed) render();
+    return false;
+  } finally {
+    recordingPollInFlight = false;
+  }
+}
+
+function stopTeachPolling() {
+  if (!recordingPollTimer) return;
+  window.clearInterval(recordingPollTimer);
+  recordingPollTimer = null;
+}
+
+function syncTeachPolling() {
+  const recording = recordingById(state.selectedRecordingId);
+  const shouldPoll = state.route === "teach" && recording && canCancelRecording(recording);
+  if (!shouldPoll) { stopTeachPolling(); return; }
+  if (recordingPollTimer) return;
+  recordingPollTimer = window.setInterval(() => { void refreshSelectedRecording(); }, recordingPollIntervalMs);
+  void refreshSelectedRecording();
 }
 
 function normalizeConfig(config) {
@@ -465,6 +688,113 @@ async function loadRules() {
   } catch (error) { state.rulesError = messageFor(error); }
 }
 
+async function createRecordingRequest() {
+  const description = nonEmpty(state.draft.description);
+  if (description.length < 4) {
+    state.error = { context: "recording", message: "Add a little more about the new habit before setting up a recording request." };
+    render();
+    return;
+  }
+  const actionVersion = ++recordingRequestVersion;
+  state.busy = "recording-create";
+  state.error = null;
+  state.flash = "";
+  render();
+  try {
+    const data = await api("/api/recordings", { method: "POST", body: JSON.stringify({ description, behaviorId: null }) });
+    if (actionVersion !== recordingRequestVersion) return;
+    const recording = normalizeRecording(data.recording);
+    if (!recording) throw new Error("The recorder returned an incomplete request. Please try again.");
+    upsertRecording(recording);
+    state.recordingsLoaded = true;
+    selectRecording(recording.id);
+    state.route = "teach";
+  } catch (error) {
+    if (actionVersion === recordingRequestVersion) {
+      state.error = { context: "recording", message: `Couldn’t set up the recording request: ${messageFor(error)}`, retry: "retry-create-recording" };
+    }
+  } finally {
+    if (state.busy === "recording-create") state.busy = "";
+    render();
+  }
+}
+
+async function cancelRecordingRequest() {
+  const recording = recordingById(state.selectedRecordingId);
+  if (!recording || !canCancelRecording(recording)) return;
+  const bandNumber = state.config?.bandNumber;
+  if (!Number.isInteger(bandNumber)) {
+    state.error = { context: "recording", message: "Band context is still loading, so this request cannot be cancelled yet.", retry: "retry-cancel-recording" };
+    render();
+    return;
+  }
+  const id = recording.id;
+  const actionVersion = ++recordingRequestVersion;
+  state.busy = "recording-cancel";
+  state.error = null;
+  state.flash = "";
+  render();
+  try {
+    const data = await api(`/api/recordings/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ bandNumber, status: "cancelled" }) });
+    if (!currentRecordingIs(id, actionVersion)) return;
+    upsertRecording(data.recording);
+    if (recordingStatus(recordingById(id)) !== "cancelled") throw new Error("The recorder returned an incomplete cancellation.");
+    state.flash = "The recording request was cancelled.";
+  } catch (error) {
+    if (!currentRecordingIs(id, actionVersion)) return;
+    if (Number(error?.status) === 409) {
+      state.busy = "";
+      state.error = null;
+      await refreshSelectedRecording();
+      if (currentRecordingIs(id, actionVersion) && state.error?.context !== "recording") {
+        state.flash = "The recorder updated this request before it could be cancelled. Showing its latest status.";
+      }
+      return;
+    }
+    state.error = { context: "recording", message: `Couldn’t cancel this recording request: ${messageFor(error)}`, retry: "retry-cancel-recording" };
+  } finally {
+    if (state.busy === "recording-cancel") state.busy = "";
+    if (state.route === "teach") render();
+  }
+}
+
+function openRecording(id) {
+  const recording = recordingById(id);
+  if (!recording) return;
+  state.draft = emptyDraft();
+  state.editingRuleId = null;
+  state.draft.description = recording.description;
+  state.draft.behaviorId = null;
+  state.draft.matchMode = null;
+  selectRecording(recording.id);
+  state.route = "teach";
+  state.error = null;
+  state.flash = "";
+  render();
+}
+
+function chooseExistingHabit() {
+  const recording = recordingById(state.selectedRecordingId);
+  if (recording) state.draft.description = recording.description;
+  clearSelectedRecording();
+  state.draft.behaviorId = null;
+  state.draft.matchMode = null;
+  state.route = "penalty";
+  state.error = null;
+  state.flash = "";
+  render();
+}
+
+function enterTeachForDifferentHabit() {
+  clearSelectedRecording();
+  state.draft.behaviorId = null;
+  state.draft.matchMode = null;
+  state.route = "teach";
+  state.error = null;
+  state.flash = "";
+  render();
+}
+
 async function classifyDescription() {
   const description = nonEmpty(state.draft.description);
   if (description.length < 4) {
@@ -477,7 +807,8 @@ async function classifyDescription() {
     state.draft.behaviorId = behaviorById(data.behaviorId)?.id || null;
     state.draft.matchMode = data.mode === "gemini" ? "gemini" : "demo";
     state.draft.confidence = typeof data.confidence === "number" ? data.confidence : null;
-    state.route = "penalty";
+    clearSelectedRecording();
+    state.route = state.draft.behaviorId ? "penalty" : "teach";
   } catch (error) { state.error = { context: "classify", message: messageFor(error), retry: "retry-classify" }; }
   finally { state.busy = ""; render(); }
 }
@@ -633,6 +964,27 @@ function restoreRedirectDraftIfNeeded() {
   } catch { /* a malformed local restore is ignored safely */ }
 }
 
+function restoreTeachRequestIfNeeded() {
+  const query = new URLSearchParams(window.location.search);
+  if (query.has("stripe_setup_session") || query.get("stripe_setup") === "cancelled") return;
+  if (!window.location.hash.startsWith(teachHashPrefix)) return;
+  try {
+    const id = nonEmpty(decodeURIComponent(window.location.hash.slice(teachHashPrefix.length)));
+    if (id) {
+      state.selectedRecordingId = id;
+      state.route = "teach";
+    }
+  } catch { /* malformed local navigation is ignored safely */ }
+}
+
+function syncTeachLocation() {
+  const id = state.route === "teach" ? nonEmpty(state.selectedRecordingId) : "";
+  const hash = id ? `${teachHashPrefix}${encodeURIComponent(id)}` : "";
+  if (window.location.hash === hash) return;
+  const url = new URL(window.location.href);
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${hash}`);
+}
+
 function clearPaymentQuery() {
   const url = new URL(window.location.href);
   url.searchParams.delete("stripe_setup_session");
@@ -693,16 +1045,22 @@ function openHelp() { updateHelpCopy(); if (typeof helpDialog.showModal === "fun
 async function handleAction(action, element) {
   if (state.busy && !["home", "rules", "activity", "help"].includes(action)) return;
   switch (action) {
-    case "home": state.route = "home"; state.error = null; state.flash = ""; render(); break;
-    case "rules": state.route = "rules"; state.error = null; state.flash = ""; await loadRules(); render(); break;
-    case "activity": state.route = "activity"; state.error = null; state.flash = ""; render(); break;
-    case "new-rule": state.draft = emptyDraft(); state.editingRuleId = null; state.route = "home"; state.error = null; state.flash = ""; render(); focusElement("#description"); break;
-    case "starter": { const starter = starters.find((item) => item.id === element.dataset.starter); if (!starter) break; state.draft.description = starter.text; state.draft.behaviorId = null; state.route = "home"; state.error = null; render(); focusElement("#description"); break; }
+    case "home": clearSelectedRecording(); state.route = "home"; state.error = null; state.flash = ""; render(); break;
+    case "rules": clearSelectedRecording(); state.route = "rules"; state.error = null; state.flash = ""; await Promise.all([loadRules(), loadRecordings()]); render(); break;
+    case "activity": clearSelectedRecording(); state.route = "activity"; state.error = null; state.flash = ""; render(); break;
+    case "new-rule": clearSelectedRecording(); state.draft = emptyDraft(); state.editingRuleId = null; state.route = "home"; state.error = null; state.flash = ""; render(); focusElement("#description"); break;
+    case "starter": { const starter = starters.find((item) => item.id === element.dataset.starter); if (!starter) break; clearSelectedRecording(); state.draft.description = starter.text; state.draft.behaviorId = null; state.route = "home"; state.error = null; render(); focusElement("#description"); break; }
     case "classify": case "retry-classify": await classifyDescription(); break;
-    case "edit-description": state.route = "home"; state.error = null; render(); focusElement("#description"); break;
+    case "edit-description": { const recording = recordingById(state.selectedRecordingId); if (recording) state.draft.description = recording.description; clearSelectedRecording(); state.route = "home"; state.error = null; state.flash = ""; render(); focusElement("#description"); break; }
+    case "teach-habit": enterTeachForDifferentHabit(); break;
+    case "choose-existing-habit": chooseExistingHabit(); break;
+    case "create-recording": case "retry-create-recording": await createRecordingRequest(); break;
+    case "cancel-recording": case "retry-cancel-recording": await cancelRecordingRequest(); break;
+    case "retry-recording": await refreshSelectedRecording(); break;
+    case "open-recording": openRecording(element.dataset.id); break;
     case "choose-amount": { const amount = Number(element.dataset.amount); if (amounts().includes(amount)) state.draft.penaltyAmount = amount; render(); break; }
     case "save-rule": case "retry-save": await saveRule(); break;
-    case "open-rule": state.selectedRuleId = element.dataset.id || null; state.route = "detail"; state.error = null; state.flash = ""; render(); break;
+    case "open-rule": clearSelectedRecording(); state.selectedRuleId = element.dataset.id || null; state.route = "detail"; state.error = null; state.flash = ""; render(); break;
     case "view-inbound": state.selectedRuleId = state.inboundRuleId; state.route = "detail"; state.inboundRuleId = null; render(); break;
     case "try-preview": beginPreview(element.dataset.id); break;
     case "preview-next": advancePreview(); break;
@@ -713,7 +1071,8 @@ async function handleAction(action, element) {
     case "ask-delete": state.deleteRuleId = element.dataset.id || null; render(); break;
     case "cancel-delete": state.deleteRuleId = null; render(); break;
     case "confirm-delete": await deleteRule(element.dataset.id); break;
-    case "reload-rules": await loadRules(); render(); break;
+    case "reload-rules": await Promise.all([loadRules(), loadRecordings()]); render(); break;
+    case "reload-recordings": await loadRecordings(); render(); break;
     case "setup-stripe": await setupStripe(); break;
     case "help": openHelp(); break;
     default: break;
@@ -746,8 +1105,8 @@ root.addEventListener("change", (event) => {
 helpClose.addEventListener("click", closeHelp);
 helpDone.addEventListener("click", closeHelp);
 document.querySelectorAll("[data-icon]").forEach((element) => { element.innerHTML = icon(element.dataset.icon); });
-window.addEventListener("beforeunload", () => state.eventSource?.close());
+window.addEventListener("beforeunload", () => { state.eventSource?.close(); stopTeachPolling(); });
 
 render();
-Promise.all([loadConfig(), loadRules()]).then(processPaymentCallback).finally(render);
+Promise.all([loadConfig(), loadRules(), loadRecordings()]).then(processPaymentCallback).finally(render);
 openEvents();

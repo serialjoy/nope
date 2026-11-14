@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { BAND_NUMBER, DEFAULT_PORT } from "./config.mjs";
-import { BEHAVIORS } from "./lib/behavior-catalog.mjs";
+import { BEHAVIORS, isBehaviorId } from "./lib/behavior-catalog.mjs";
 import { BehaviorClassifier } from "./lib/classifier.mjs";
 import { CorrectionsEngine } from "./lib/corrections.mjs";
 import { HttpError, isHttpError } from "./lib/errors.mjs";
@@ -19,6 +19,7 @@ import {
   planFromGemini,
 } from "./lib/planner.mjs";
 import { RulesStore } from "./lib/rules-store.mjs";
+import { RecordingsStore } from "./lib/recordings-store.mjs";
 import {
   requireObject,
   requiredText,
@@ -38,6 +39,7 @@ const PUBLIC_DIRECTORY = path.join(MODULE_ROOT, "public");
 const DEFAULT_DATA_DIRECTORY = path.join(MODULE_ROOT, ".data");
 const MAX_BODY_BYTES = 32 * 1024;
 const KEEPALIVE_MS = 25_000;
+const RECORDING_STATUSES = new Set(["recording", "recorded", "cancelled"]);
 
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -98,6 +100,67 @@ function routeRuleId(pathname) {
 function routeRuleStopId(pathname) {
   const match = pathname.match(/^\/api\/rules\/([^/]+)\/stop$/);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+function routeRecordingId(pathname) {
+  const match = pathname.match(/^\/api\/recordings\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function own(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function validateRecordingCreate(value) {
+  const body = requireObject(value);
+  const allowed = new Set(["description", "behaviorId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    throw new HttpError(400, "Only description and behaviorId can be used to request a recording.");
+  }
+  const behaviorId = own(body, "behaviorId") ? body.behaviorId : null;
+  if (behaviorId !== null && !isBehaviorId(behaviorId)) {
+    throw new HttpError(400, "behaviorId must be a supported habit or null.");
+  }
+  return {
+    description: requiredText(body.description, "description"),
+    behaviorId,
+  };
+}
+
+function validateRecordingTransition(value) {
+  const body = requireObject(value);
+  const allowed = new Set(["bandNumber", "status", "recordingRef", "sampleCount"]);
+  if (!Object.keys(body).length || Object.keys(body).some((key) => !allowed.has(key))) {
+    throw new HttpError(400, "Only bandNumber, status, recordingRef, and sampleCount can update a recording.");
+  }
+  if (!own(body, "bandNumber") || body.bandNumber !== BAND_NUMBER) {
+    throw new HttpError(400, `This server only accepts recording updates for band ${BAND_NUMBER}.`);
+  }
+  if (!own(body, "status") || !RECORDING_STATUSES.has(body.status)) {
+    throw new HttpError(400, "status must be recording, recorded, or cancelled.");
+  }
+
+  const hasCompletionMetadata = own(body, "recordingRef") || own(body, "sampleCount");
+  if (body.status !== "recorded") {
+    if (hasCompletionMetadata) {
+      throw new HttpError(400, "recordingRef and sampleCount are only allowed when status is recorded.");
+    }
+    return {
+      status: body.status,
+      recordingRef: null,
+      sampleCount: null,
+    };
+  }
+
+  const recordingRef = requiredText(body.recordingRef, "recordingRef", 240);
+  if (!Number.isInteger(body.sampleCount) || body.sampleCount < 1 || body.sampleCount > 1_000_000) {
+    throw new HttpError(400, "sampleCount must be an integer from 1 to 1000000.");
+  }
+  return {
+    status: "recorded",
+    recordingRef,
+    sampleCount: body.sampleCount,
+  };
 }
 
 function sameLoopbackOrigin(request, origin) {
@@ -182,6 +245,7 @@ export function createApp({
   clock = () => new Date(),
 } = {}) {
   const store = new RulesStore(dataDirectory);
+  const recordings = new RecordingsStore(dataDirectory);
   const clients = new Set();
   let server;
   let ownPayments = payments;
@@ -292,6 +356,56 @@ export function createApp({
           ? planFromGemini(await gemini.plan(input), input)
           : buildDemoPlan(input);
         sendJson(response, 200, { mode: apiMode(gemini), rule });
+        return;
+      }
+
+      if (url.pathname === "/api/recordings" && method === "GET") {
+        sendJson(response, 200, { recordings: await recordings.list() });
+        return;
+      }
+
+      if (url.pathname === "/api/recordings" && method === "POST") {
+        const requestData = validateRecordingCreate(await readJson(request));
+        const requestedAt = nowIso();
+        const recording = await recordings.create({
+          id: `recording_${randomUUID()}`,
+          description: requestData.description,
+          behaviorId: requestData.behaviorId,
+          bandNumber: BAND_NUMBER,
+          durationSeconds: 10,
+          status: "requested",
+          createdAt: requestedAt,
+          updatedAt: requestedAt,
+          recordingRef: null,
+          sampleCount: null,
+        });
+        if (!recording) {
+          throw new HttpError(409, "The 100 saved recording requests limit has been reached.");
+        }
+        sendJson(response, 201, { recording });
+        return;
+      }
+
+      const recordingId = routeRecordingId(url.pathname);
+      if (recordingId && method === "GET") {
+        const recording = await recordings.get(recordingId);
+        if (!recording) throw new HttpError(404, "Recording request not found.");
+        sendJson(response, 200, { recording });
+        return;
+      }
+      if (recordingId && method === "PATCH") {
+        const change = validateRecordingTransition(await readJson(request));
+        const result = await recordings.transition(recordingId, {
+          status: change.status,
+          recordingRef: change.recordingRef,
+          sampleCount: change.sampleCount,
+          updatedAt: nowIso(),
+        });
+        if (result.kind === "missing") throw new HttpError(404, "Recording request not found.");
+        if (result.kind === "conflict") {
+          throw new HttpError(409, "Recording request cannot make that state transition or change completion metadata.");
+        }
+        sendJson(response, 200, { recording: result.recording });
         return;
       }
 
@@ -418,7 +532,7 @@ export function createApp({
     }
   });
   server.on("close", () => clearInterval(keepalive));
-  return { server, store, broadcastDetection };
+  return { server, store, recordings, broadcastDetection };
 }
 
 export function startServer({ port = Number(process.env.PORT) || DEFAULT_PORT } = {}) {

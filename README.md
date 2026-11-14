@@ -27,7 +27,34 @@ Your keys go in your clone's `.env`, ignored by Git. Local rules and payment sta
 
 Set `GEMINI_API_KEY` and a Stripe test-only `STRIPE_SECRET_KEY` (`sk_test_` or `rk_test_` only). `GEMINI_DECISION_MODEL=gemini-decision-1` is optional.
 
-Gemini decisions use the fixed endpoint `https://generativelanguage.googleapis.com/v1beta/decisions` and exactly six categories: Doom-scroll (`scrolling`), Nail biting (`nail_biting`), Vaping (`vaping`), Smoking (`smoking`), Porn (`porn`), and Snacks (`snacking`). Unsupported or low-confidence descriptions require manual selection. The former `drinking` category is unsupported and is never reinterpreted as `porn`. With no Gemini key, the app explicitly reports its demo matching; a configured-key failure returns `502`.
+Gemini decisions use the fixed endpoint `https://generativelanguage.googleapis.com/v1beta/decisions` and exactly six categories: Doom-scroll (`scrolling`), Nail biting (`nail_biting`), Vaping (`vaping`), Smoking (`smoking`), Porn (`porn`), and Snacks (`snacking`). Unsupported or low-confidence descriptions open a recording-request handoff instead of creating a rule or penalty; the person can still choose an existing habit if that is a better fit. The former `drinking` category is unsupported and is never reinterpreted as `porn`. With no Gemini key, the app explicitly reports its demo matching; a configured-key failure returns `502`.
+
+## Recording-request handoff
+
+An unknown habit can be saved as a request for the separate recorder and detector. Creating a request is **not** a recording, capture permission, trained model, active rule, detector event, or payment. One short sample may help the teammate build a detector, but it does not establish reliable detection; the detector still needs training and checking.
+
+- `GET /api/recordings` returns `{ "recordings": [...] }`; `GET /api/recordings/:id` returns one request.
+- `POST /api/recordings` accepts `{ "description", "behaviorId"? }`, where `behaviorId` is a supported catalog id or `null`. It returns a `requested` request for the configured band with a requested `durationSeconds` of `10`.
+- The recorder reports `recording` and `recorded`; either the app or recorder can report `cancelled`. Every update must include the configured `bandNumber` and follows `requested → recording → recorded`, or `requested`/`recording → cancelled`.
+- A `recorded` acknowledgment also needs a nonempty opaque `recordingRef` (at most 240 characters) and an integer `sampleCount` from 1 through 1,000,000. Nope never fetches or renders that reference as a URL; raw recordings stay with the recorder.
+- Retries with the same status and completion metadata are idempotent. Completed and cancelled requests cannot be reopened. Up to 100 saved requests are retained; the server returns a clear conflict rather than silently removing older requests.
+
+For the configured band, the recorder can copy these updates (the current `BAND_NUMBER` is 58):
+
+```json
+{ "bandNumber": 58, "status": "recording" }
+```
+
+```json
+{
+  "bandNumber": 58,
+  "status": "recorded",
+  "recordingRef": "recorder-owned-capture-id",
+  "sampleCount": 240
+}
+```
+
+Recording APIs do not create rules, post detector events, train anything, activate penalties, or call Stripe. A known classification is likewise not proof that a detector is available; detection remains the separate process's responsibility.
 
 ## Rules and test payments
 
@@ -66,6 +93,8 @@ Use a fresh `eventId` for every observation and reuse that same ID only to retry
 
 `.data/stripe-payments.json` stores only this app's Stripe customer/card state, never API keys.
 
+`.data/recordings.json` stores only durable recording-request metadata and detector acknowledgments, never raw audio, motion samples, or trained models.
+
 ## Validation
 
 ```sh
@@ -73,4 +102,4 @@ npm run check
 npm test
 ```
 
-Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, one $1 test charge after 64 seconds with no duplicate charge from repeated events, stop/pause behavior, and 19 automated checks. See [the simplified flow](tasks/simplify-flow.md).
+Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, one $1 test charge after 64 seconds with no duplicate charge from repeated events, stop/pause behavior, and 25 automated checks, including recording-request persistence, validation, cancellation, and idempotent acknowledgments. See [the simplified flow](tasks/simplify-flow.md) and [Teach Nope](tasks/teach-nope.md).

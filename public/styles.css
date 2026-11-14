@@ -870,3 +870,139 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 @media (min-width: 640px) {
   .setup-action { bottom: 31px; }
 }
+
+/* New-habit recording handoff */
+.mode-tag.recording { border-color: #b7dce4; color: #174d58; background: var(--cyan); }
+.mode-tag.recorded { border-color: #bfe3b6; color: #1d5d42; background: var(--green); }
+.mode-tag.cancelled { border-color: #d8dadd; color: #5c6267; background: #f4f5f5; }
+
+.teach-lead { margin-bottom: 20px; }
+.teach-lead .screen-copy { max-width: 32ch; }
+.teach-description { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin: 18px 0; }
+.teach-description > span { min-width: 0; overflow-wrap: anywhere; }
+.teach-description .text-button { flex: 0 0 auto; color: #332e38; font-size: 12px; }
+.teach-different-action { margin: -5px 0 7px; color: #5a5d61; font-size: 12px; }
+
+.teach-guide,
+.recording-request {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid var(--fine);
+  border-radius: 23px;
+  background: #fff;
+}
+
+.teach-guide { background: #fbf8fd; border-color: #e5d9ee; }
+.teach-guide h2,
+.recording-request h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 27px;
+  font-weight: 830;
+  letter-spacing: -.055em;
+  line-height: 1;
+}
+
+.teach-steps {
+  display: grid;
+  gap: 10px;
+  margin: 17px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: teach-step;
+}
+
+.teach-steps li {
+  position: relative;
+  min-height: 47px;
+  padding: 11px 12px 10px 48px;
+  border-radius: 15px;
+  background: rgba(255,255,255,.8);
+  color: #3b3540;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.teach-steps li::before {
+  position: absolute;
+  top: 10px;
+  left: 11px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: #4c3c5a;
+  background: var(--lilac);
+  content: counter(teach-step);
+  counter-increment: teach-step;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.teach-steps strong { color: var(--ink); }
+.teach-note { margin: 14px 1px 0; color: #62596a; font-size: 12px; line-height: 1.42; }
+.choose-existing-action { display: block; width: max-content; max-width: 100%; margin: 14px auto 0; font-size: 13px; }
+
+.recording-request.waiting { border-color: #d8dadd; background: #fbfbfb; }
+.recording-request.recording { border-color: #b7dce4; background: #f1fbfd; }
+.recording-request.recorded { border-color: #bfe3b6; background: #f3fbf0; }
+.recording-request.cancelled { border-color: #d8dadd; background: #f7f8f8; }
+
+.recording-status-top {
+  display: grid;
+  grid-template-columns: 43px minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+}
+
+.recording-status-top .icon-disc { width: 43px; height: 43px; background: #fff; }
+.recording-status-top .icon-disc svg { width: 21px; height: 21px; }
+.recording-status-top .mode-tag { margin-bottom: 10px; }
+.recording-status-top h2 { margin-bottom: 7px; }
+.recording-status-top p { margin: 0; color: #4f5b63; font-size: 14px; line-height: 1.4; }
+.recording-request.recorded .recording-status-top p { color: #3b7254; }
+
+.recording-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 17px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid rgba(16,17,18,.09);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recording-actions { margin-top: 17px; }
+.recording-actions .wide-action { min-height: 49px; }
+
+.learning-section { margin-top: 31px; padding-top: 25px; border-top: 1px solid var(--fine); }
+.learning-heading { margin-bottom: 15px; }
+.learning-heading .eyebrow { margin-bottom: 9px; }
+.learning-heading h2 { margin: 0; font-family: var(--display); font-size: 28px; font-weight: 830; letter-spacing: -.055em; line-height: 1; }
+.learning-heading p { margin: 8px 0 0; max-width: 34ch; color: var(--muted); font-size: 14px; }
+.learning-list { display: grid; gap: 10px; }
+
+.learning-card {
+  padding: 16px;
+  border: 1px solid #e2dde7;
+  border-radius: 21px;
+  background: #fcfaff;
+}
+
+.learning-card h3 { margin: 9px 0 0; font-family: var(--display); font-size: 20px; font-weight: 820; letter-spacing: -.045em; line-height: 1.04; overflow-wrap: anywhere; }
+.learning-card > p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.learning-card .action-row { margin-top: 14px; justify-content: space-between; gap: 12px; }
+.learning-duration,
+.learning-date { color: var(--muted); font-size: 12px; }
+.learning-duration { flex: 0 0 auto; margin-top: 3px; white-space: nowrap; }
+.teach-missing { margin-top: 38px; }
+
+@media (max-width: 370px) {
+  .teach-guide,
+  .recording-request { padding: 16px; }
+  .recording-status-top { grid-template-columns: 38px minmax(0, 1fr); gap: 10px; }
+  .recording-status-top .icon-disc { width: 38px; height: 38px; }
+  .learning-card h3 { font-size: 19px; }
+}
