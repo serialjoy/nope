@@ -83,7 +83,19 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 
 .topbar { justify-content: space-between; gap: 14px; }
 
-.brand-lockup { gap: 8px; font-family: var(--display); font-weight: 800; letter-spacing: -.055em; }
+.brand-lockup { gap: 0; font-family: var(--display); font-weight: 800; letter-spacing: -.055em; line-height: 0; }
+
+.brand-wordmark,
+.brand-lockup .brand-wordmark {
+  display: block;
+  width: 130px;
+  max-width: 100%;
+  height: auto;
+  flex: 0 1 auto;
+}
+
+.brand-icon,
+.brand-lockup .brand-icon { display: block; width: 34px; height: 34px; flex: 0 0 auto; }
 
 .stop-mark {
   display: inline-grid;
@@ -179,8 +191,9 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
   line-height: .94;
 }
 
-.display-title { font-size: clamp(48px, 13vw, 58px); }
+.display-title { font-size: clamp(54px, 17vw, 72px); }
 .screen-title { font-size: clamp(39px, 11vw, 51px); }
+.home-headline-line { display: inline; }
 
 .intro-copy,
 .screen-copy,
@@ -260,22 +273,24 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 
 .starter-card {
   display: flex;
-  min-height: 148px;
-  padding: 15px;
-  align-items: flex-start;
+  min-height: 0;
+  padding: 0;
+  align-items: stretch;
   flex-direction: column;
-  justify-content: space-between;
-  border: 0;
+  justify-content: flex-start;
+  overflow: hidden;
+  border: 1px solid var(--fine);
   border-radius: 25px;
+  background: #fff;
   text-align: left;
   transition: transform .17s ease;
 }
 
 .starter-card:hover { transform: translateY(-2px); }
-.starter-card.cyan { background: var(--cyan); }
-.starter-card.lilac { background: var(--lilac); }
-.starter-card.green { background: var(--green); }
-.starter-card.yellow { background: var(--yellow); }
+.starter-card.cyan,
+.starter-card.lilac,
+.starter-card.green,
+.starter-card.yellow { background: #fff; }
 
 .icon-disc {
   display: inline-grid;
@@ -289,7 +304,17 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 
 .icon-disc svg { width: 24px; height: 24px; }
 
-.starter-label { max-width: 100%; font-family: var(--display); font-size: 22px; font-weight: 800; letter-spacing: -.055em; line-height: .98; }
+.starter-art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+}
+
+.starter-label { display: block; width: 100%; max-width: 100%; min-height: 60px; padding: 14px; background: #fff; font-family: var(--display); font-size: 22px; font-weight: 800; letter-spacing: -.055em; line-height: .98; }
 
 .bottom-nav {
   position: fixed;
@@ -334,6 +359,7 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 
 .screen-topbar { min-height: 45px; justify-content: space-between; gap: 10px; }
 .screen-topbar .brand-lockup { font-size: 14px; }
+.screen-topbar .brand-wordmark { width: 110px; }
 .screen-topbar .stop-mark { width: 27px; height: 27px; border-radius: 9px; }
 .screen-topbar .stop-mark span { width: 8px; height: 8px; }
 
@@ -586,6 +612,7 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 .phone-card::before { position: absolute; top: 9px; left: 50%; width: 66px; height: 5px; border-radius: 99px; background: #191a1b; content: ""; transform: translateX(-50%); }
 .notification-top { margin-top: 9px; justify-content: space-between; color: #555a5e; font-size: 11px; font-weight: 720; }
 .notification-top .brand-lockup { font-size: 12px; letter-spacing: -.035em; }
+.notification-top .brand-wordmark { width: 76px; }
 .notification-top .stop-mark { width: 19px; height: 19px; border-width: 1.5px; border-radius: 7px; }
 .notification-top .stop-mark span { width: 6px; height: 6px; }
 .phone-card h3 { margin: 21px 0 7px; font-family: var(--display); font-size: 24px; font-weight: 820; letter-spacing: -.05em; line-height: 1; }
@@ -648,6 +675,7 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 }
 
 .help-dialog::backdrop { background: rgba(16,17,18,.38); }
+.dialog-topline .brand-wordmark { width: 110px; }
 .help-dialog h2 { margin: 38px 0 20px; font-family: var(--display); font-size: 42px; font-weight: 850; letter-spacing: -.065em; line-height: .94; }
 .help-copy { display: grid; gap: 18px; }
 .help-copy section { padding-bottom: 17px; border-bottom: 1px solid var(--fine); }
@@ -666,16 +694,14 @@ svg { display: block; width: 1.35em; height: 1.35em; stroke: currentColor; fill:
 
 @media (max-width: 370px) {
   .app-shell { padding-right: 18px; padding-left: 18px; }
+  .topbar .brand-wordmark { width: 98px; }
   .nav-link { min-width: 49px; padding-inline: 6px; }
   .nav-link span { display: none; }
-  .display-title { font-size: 46px; }
-  .starter-card { min-height: 132px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
-
 /* Two-step End Itt rule setup */
 .band-status {
   display: inline-flex;

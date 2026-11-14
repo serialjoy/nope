@@ -146,7 +146,7 @@ function recordingStatus(recording) { return ["requested", "recording", "recorde
 function canCancelRecording(recording) { return ["requested", "recording"].includes(recordingStatus(recording)); }
 
 function logoMarkup() {
-  return '<span class="brand-lockup" aria-hidden="true"><span class="stop-mark"><span></span></span>Nope</span>';
+  return '<span class="brand-lockup"><img class="brand-wordmark" src="/assets/nope-wordmark.svg" alt="Nope" width="132" height="48"></span>';
 }
 
 function bandStatusMarkup() {
@@ -192,11 +192,11 @@ function renderHome() {
       <div class="inline-row" style="gap:8px">${bandStatusMarkup()}<button class="icon-button quiet" type="button" data-action="help" aria-label="Open help" data-testid="help-open">${icon("help")}</button></div>
     </div>
     <div class="home-intro">
-      <h1 class="display-title" id="home-title">What do you want to end?</h1>
-      <p class="intro-copy">Name the habit. Pick a small stake. Keep it simple.</p>
+      <h1 class="display-title" id="home-title"><span class="home-headline-line">Not on</span><br><span class="home-headline-line">my watch.</span></h1>
+      <p class="intro-copy">Pick a habit. We’ll keep an eye on it.</p>
     </div>
     <div class="input-wrap">
-      <label class="field-label" for="description">Tell us in your own words</label>
+      <label class="field-label" for="description">What do you want to stop?</label>
       <textarea class="rule-input" id="description" data-field="description" rows="4" placeholder="I want to stop doom-scrolling at night." aria-describedby="description-caption">${escapeHtml(state.draft.description)}</textarea>
       <button class="round-button input-send" type="button" data-action="classify" aria-label="Choose a penalty for this rule" data-testid="describe-submit" ${state.busy ? "disabled" : ""}>${state.busy === "classify" ? '<span class="spinner" aria-hidden="true"></span>' : icon("arrow")}</button>
     </div>
@@ -204,7 +204,7 @@ function renderHome() {
     ${renderError("classify")}
     <section class="starter-section" aria-labelledby="starter-title">
       <h2 class="section-heading" id="starter-title">Or start with an idea</h2>
-      <div class="starter-grid">${starters.map((starter) => `<button class="starter-card ${starter.tone}" type="button" data-action="starter" data-starter="${starter.id}" aria-label="Use ${escapeHtml(starter.label)} as an editable example" data-testid="starter-${starter.id}"><span class="icon-disc">${icon(starter.icon)}</span><span class="starter-label">${escapeHtml(starter.label)}</span></button>`).join("")}</div>
+      <div class="starter-grid">${starters.map((starter) => `<button class="starter-card ${starter.tone}" type="button" data-action="starter" data-starter="${starter.id}" aria-label="Use ${escapeHtml(starter.label)} as an editable example" data-testid="starter-${starter.id}"><img class="starter-art" src="/assets/tiles/${starter.id}.jpg" alt="" width="1168" height="880" loading="lazy" decoding="async"><span class="starter-label">${escapeHtml(starter.label)}</span></button>`).join("")}</div>
     </section>
   </section>`);
 }
@@ -451,7 +451,7 @@ function renderPreview(rule) {
   return `<section class="preview-panel" aria-labelledby="preview-title" data-testid="preview-panel">
     <div class="status-row"><span class="preview-label">${detector ? "Detector" : "Preview"}</span><span class="connection-label">${detector ? "Received update" : "In-app only"}</span></div>
     <h2 id="preview-title">${detector ? "Detector update" : "Trying this rule"}</h2><p>${detector ? "A detector update moved this rule forward." : "Preview only. No charge."}</p>
-    ${active ? `<div class="phone-card ${stageTwo ? "penalty-card" : ""}"><div class="notification-top"><span class="brand-lockup"><span class="stop-mark mini"><span></span></span>Nope</span><span>now</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></div>
+    ${active ? `<div class="phone-card ${stageTwo ? "penalty-card" : ""}"><div class="notification-top"><span class="brand-lockup"><img class="brand-wordmark" src="/assets/nope-wordmark.svg" alt="" aria-hidden="true" width="78" height="28"></span><span>now</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></div>
       <p class="phone-caption">${detector ? "Result shown above." : "Preview only. No charge."}</p>
       <div class="preview-controls"><button class="wide-action secondary" type="button" data-action="preview-stopped" data-testid="preview-stopped">I stopped</button>${!detector && !stageTwo ? '<button class="wide-action" type="button" data-action="preview-next" data-testid="preview-next">Still doing it</button>' : ""}${detector ? '<button class="wide-action secondary" type="button" data-action="preview-dismiss">False alarm</button>' : ""}</div>` : `<div class="preview-ended"><strong>${detector ? "Session complete" : "Preview complete"}</strong>${escapeHtml(completion)}</div>`}
     ${renderError("preview")}
