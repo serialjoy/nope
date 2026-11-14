@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.data/
+coverage/
+vexo-open-kit
+.DS_Store
+*.log

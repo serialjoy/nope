@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Nope helps you make a clear, self-directed habit plan." />
+    <title>Nope</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-live="polite" aria-busy="false"></main>
+
+    <dialog id="help-dialog" class="help-dialog" aria-labelledby="help-title">
+      <div class="dialog-topline">
+        <span class="brand-lockup" aria-hidden="true">
+          <span class="stop-mark mini"><span></span></span>
+          Nope
+        </span>
+        <button class="icon-button quiet" id="help-close" type="button" aria-label="Close help" data-testid="help-close">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <h2 id="help-title">A little help</h2>
+      <div class="help-copy">
+        <section>
+          <h3>One quick setup</h3>
+          <p>Describe what you want to end, choose the closest habit and choose a small amount. The two displayed steps are the whole rule.</p>
+        </section>
+        <section>
+          <h3>Band and detection</h3>
+          <p id="help-band-status">Checking the band rule context…</p>
+        </section>
+        <section>
+          <h3>Previews stay here</h3>
+          <p>Previewing does not send a phone alert or call Stripe. It only shows the nudge and a simulated penalty inside this app.</p>
+        </section>
+        <section>
+          <h3>Classification and payment</h3>
+          <p id="help-ai-mode">Checking local setup…</p>
+        </section>
+      </div>
+      <button class="wide-action" id="help-done" type="button">Got it</button>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

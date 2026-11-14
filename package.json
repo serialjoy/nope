@@ -1,0 +1,14 @@
+{
+  "name": "end-itt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test",
+    "check": "for file in config.mjs server.mjs public/app.js lib/*.mjs; do node --check \"$file\" || exit 1; done"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

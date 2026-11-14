@@ -1,0 +1,76 @@
+# Nope
+
+Nope is a local, mobile-friendly habit-support app. Describe a habit, let Gemini classify it, choose a $1, $5, or $10 test consequence, and get a two-stage response: an in-app nudge first, then a one-time Stripe test charge only if the behavior continues for 60 seconds.
+
+## Run locally
+
+Requires Node 24 or newer. There are no package dependencies. The app is available at <http://127.0.0.1:3000/> and binds only to `127.0.0.1`.
+
+Clone the app, then copy the empty key template only if `.env` is absent:
+
+```sh
+git clone https://github.com/serialjoy/nope.git
+cd nope
+[ -f .env ] || cp .env.example .env
+npm start
+```
+
+`npm start` loads `.env` from the project root. The app also works without keys in demo mode. The original laptop checkout supports this absolute-path launch:
+
+```sh
+node --env-file-if-exists=/Users/cristian/Sites/Test_repos/pause/.env /Users/cristian/Sites/Test_repos/pause/server.mjs
+```
+
+Your keys go in your clone's `.env`, ignored by Git. Local rules and payment state are also excluded. Never paste API keys into chat, a browser, or source code.
+
+## Keys and classification
+
+Set `GEMINI_API_KEY` and a Stripe test-only `STRIPE_SECRET_KEY` (`sk_test_` or `rk_test_` only). `GEMINI_DECISION_MODEL=gemini-decision-1` is optional.
+
+Gemini decisions use the fixed endpoint `https://generativelanguage.googleapis.com/v1beta/decisions` and exactly six categories: Doom-scroll (`scrolling`), Nail biting (`nail_biting`), Vaping (`vaping`), Smoking (`smoking`), Porn (`porn`), and Snacks (`snacking`). Unsupported or low-confidence descriptions require manual selection. The former `drinking` category is unsupported and is never reinterpreted as `porn`. With no Gemini key, the app explicitly reports its demo matching; a configured-key failure returns `502`.
+
+## Rules and test payments
+
+- Start a rule: `POST /api/rules` with `{ "description", "behaviorId", "penaltyAmount" }`.
+- Update it: `PATCH /api/rules/:id` with those same fields or `{ "enabled" }`; list rules with `GET /api/rules`.
+- Old rules stay read-only and cannot charge until explicitly updated.
+- Preview is always local and never calls Stripe. **Connect test card** opens Stripe's hosted setup flow; callbacks are verified server-side and the draft is restored.
+- Real-money payments are disabled. Only test setup and one-time test charges are supported.
+
+## Detector handoff
+
+Band 58 is context only: a friend's separate process performs detection. Nope has no Bluetooth connection or band control. Notifications appear inside the open app; native/background phone push is not implemented.
+
+Run the detector alongside this app on the same computer and post to `http://127.0.0.1:3000/api/events`. The server is local-only; another computer cannot reach it at that address. This repository runs independently of the Vexo SDK; keep hardware detection in your separate process and send the events below.
+
+Send detector observations to `POST /api/events`:
+
+```json
+{
+  "bandNumber": 58,
+  "ruleId": "an-id-from-GET-/api/rules",
+  "eventId": "unique-observation-id",
+  "phase": "started"
+}
+```
+
+`phase` is `started`, `continued`, or `stopped`; optional `occurredAt` is display-only. `started` sets the server clock, `continued` before 60 seconds sends the in-app nudge, and `continued` after 60 seconds makes the selected one-time test charge. `stopped`, or `POST /api/rules/:id/stop` with `{}`, ends the episode. Paused rules return `409`; the wrong band returns `400`.
+
+Use a fresh `eventId` for every observation and reuse that same ID only to retry it. Start only one new episode with `started`; do not repeatedly send `started` for the same episode.
+
+`GET /api/events` is an SSE stream with named `detection` events. When applicable, an event includes `correction` with `stage`, `status`, and optional `amountDollars`; stopped events and events without an active episode can omit it.
+
+## Persistence and safeguards
+
+`.data/rules.json` stores rules, episodes, and the last 1,000 event receipts. Durable charge keys and outcomes prevent duplicate charges across restarts. Do not delete `.data` or reset state while a charge is pending.
+
+`.data/stripe-payments.json` stores only this app's Stripe customer/card state, never API keys.
+
+## Validation
+
+```sh
+npm run check
+npm test
+```
+
+Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, one $1 test charge after 64 seconds with no duplicate charge from repeated events, stop/pause behavior, and 19 automated checks. See [the simplified flow](tasks/simplify-flow.md).
