@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nope · Band detector</title>
 <style>
-  :root { --bg:#fff; --ink:#111; --muted:#666; --card:#f4f4f2; --accent:#ffd84d; --ok:#1a7f4b; --bad:#b3261e; color-scheme: light dark; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#121212; --ink:#f2f2f2; --muted:#a0a0a0; --card:#1e1e1e; } }
+  :root { --bg:#fff; --ink:#111; --muted:#666; --card:#f4f4f2; --line:rgba(22,22,22,.14); --accent:#ffd84d; --ok:#1a7f4b; --bad:#b3261e; --blue:#2775d8; --red:#d24545; --violet:#7653ce; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121212; --ink:#f2f2f2; --muted:#a0a0a0; --card:#1e1e1e; --line:rgba(255,255,255,.18); } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 56px; }
   h1 { font-size: 2rem; line-height: 1.1; margin: 0 0 4px; }
   p.lead { color: var(--muted); margin: 0 0 16px; }
   .card { background: var(--card); border-radius: 16px; padding: 14px 16px; margin: 12px 0; }
@@ -28,6 +28,39 @@
   #log time { color:var(--muted); margin-right:6px; }
   .muted { color:var(--muted); font-size:.9rem; }
   a { color: inherit; }
+  .monitor-layout { display:grid; gap:12px; margin:12px 0; }
+  .monitor-layout > * { min-width:0; margin:0; }
+  .card-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:10px; }
+  .card-heading h2 { font-size:1rem; margin:0; }
+  .card-heading p { margin:0; }
+  .trace-wrap { height:218px; border-radius:12px; overflow:hidden; background:var(--bg); border:1px solid var(--line); }
+  #gyro-trace { display:block; width:100%; height:100%; }
+  .trace-key, .trace-scale, .cooldown-list { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .trace-key { font-size:.84rem; color:var(--muted); }
+  .key { display:inline-flex; align-items:center; gap:5px; }
+  .key i { width:9px; height:9px; border-radius:999px; background:currentColor; }
+  .key.x { color:var(--blue); } .key.y { color:var(--red); } .key.z { color:var(--violet); }
+  .trace-scale { justify-content:space-between; color:var(--muted); font-size:.82rem; margin:8px 1px 0; }
+  .metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--line); }
+  .metrics > div { min-width:0; padding:10px; background:var(--card); }
+  .metrics dt { color:var(--muted); font-size:.76rem; line-height:1.2; }
+  .metrics dd { margin:3px 0 0; font-variant-numeric:tabular-nums; font-weight:700; overflow-wrap:anywhere; }
+  .motion-note { margin:10px 0 0; color:var(--muted); font-size:.9rem; }
+  .gate-on { background:var(--ok); color:#fff; } .gate-off { background:var(--accent); color:#111; } .gate-waiting { background:var(--line); color:var(--ink); }
+  .decision-title { font-size:1.15rem; font-weight:750; margin:0 0 3px; }
+  .decision-detail { color:var(--muted); margin:0; min-height:1.45em; }
+  .cooldown-list { margin-top:13px; padding-top:12px; border-top:1px solid var(--line); font-size:.9rem; }
+  .cooldown { display:inline-flex; gap:6px; align-items:baseline; }
+  .cooldown b { font-variant-numeric:tabular-nums; }
+  .policy-card { border:1px solid var(--ink); background:var(--bg); }
+  .policy-card p { margin:0; font-weight:650; }
+  .policy-card small { display:block; color:var(--muted); margin-top:5px; }
+  #decision-trace { list-style:none; margin:0; padding:0; max-height:300px; overflow:auto; font-size:.88rem; }
+  #decision-trace li { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:8px; padding:8px 0; border-bottom:1px solid var(--line); }
+  #decision-trace time { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .trace-reason { font-weight:650; } .trace-detail { grid-column:2; color:var(--muted); font-size:.9em; }
+  @media (min-width:760px) { .monitor-layout { grid-template-columns:minmax(0,1.55fr) minmax(250px,1fr); } .trace-card { grid-row:span 2; } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:430px) { main { padding-inline:12px; } .card { padding:13px; } .trace-wrap { height:180px; } .metrics > div { padding:8px; } button { padding:9px 14px; } }
 </style>
 </head>
 <body>
@@ -45,17 +78,55 @@
     <p class="muted" id="model">Sound model: loading…</p>
   </div>
 
-  <div class="card" aria-live="polite">
+  <section class="monitor-layout" aria-label="Live motion monitoring">
+    <section class="card trace-card" aria-labelledby="gyro-title">
+      <div class="card-heading"><h2 id="gyro-title">Gyroscope · last 10 seconds</h2><span class="trace-key" aria-label="Trace legend"><span class="key x"><i></i>X</span><span class="key y"><i></i>Y</span><span class="key z"><i></i>Z</span></span></div>
+      <div class="trace-wrap"><canvas id="gyro-trace" aria-hidden="true"></canvas></div>
+      <p class="trace-scale"><span>10 seconds</span><span id="gyro-range">±25°/s scale</span><span>degrees / second</span></p>
+    </section>
+
+    <section class="card motion-card" aria-labelledby="motion-title">
+      <div class="card-heading"><h2 id="motion-title">Movement gate</h2><span class="pill gate-waiting" id="motion-gate">Collecting</span></div>
+      <dl class="metrics">
+        <div><dt>Gyro X</dt><dd id="gyro-x">—</dd></div>
+        <div><dt>Gyro Y</dt><dd id="gyro-y">—</dd></div>
+        <div><dt>Gyro Z</dt><dd id="gyro-z">—</dd></div>
+        <div><dt>Movement strength</dt><dd id="motion-strength">—</dd></div>
+        <div><dt>Samples</dt><dd id="motion-samples">—</dd></div>
+        <div><dt>Latest packet</dt><dd id="motion-age">—</dd></div>
+      </dl>
+      <p class="motion-note" id="motion-note">Connect a band to see its wrist movement.</p>
+    </section>
+
+    <section class="card decision-card" aria-labelledby="decision-title">
+      <div class="card-heading"><h2 id="decision-title">Last decision</h2><span class="muted" id="timing">—</span></div>
+      <p class="decision-title" id="decision-reason">Waiting for audio</p>
+      <p class="decision-detail" id="decision-detail">The detector will explain the first blocker it sees.</p>
+      <div class="cooldown-list" aria-label="Lighter state and repeat cooldowns"><span class="cooldown">Lighter state <b id="lighter-state">—</b></span><span class="cooldown">Lighter cooldown <b id="cooldown-lighter">—</b></span><span class="cooldown">Can opening <b id="cooldown-can_opening">—</b></span></div>
+    </section>
+  </section>
+
+  <div class="card">
+    <div class="card-heading"><h2>Sound confidence</h2><span class="muted">Listening: <span id="listening">—</span></span></div>
     <div class="meter"><b><span>Lighter</span><span id="p-lighter">–</span></b><div class="bar"><i id="b-lighter"></i></div></div>
     <div class="meter"><b><span>Can opening</span><span id="p-can_opening">–</span></b><div class="bar"><i id="b-can_opening"></i></div></div>
-    <p class="muted">Wrist motion: <b id="motion">–</b> · Last check: <span id="timing">–</span> · Listening: <span id="listening">–</span></p>
     <label class="muted"><input type="checkbox" id="require-motion" checked> Only count a sound if the wrist moved (fewer false alarms)</label>
   </div>
 
-  <div class="card">
-    <b>Detections</b>
+  <section class="card policy-card" aria-label="Current detector requirement">
+    <p>Each hit needs a lighter score of 75% + wrist movement on two fresh checks. The signal must clear between hits. Movement alone does not trigger Smoking.</p>
+    <small>The classifier windows overlap, so two checks establish persistence, not independent proof. A 5-second cooldown is also required.</small>
+  </section>
+
+  <section class="card" aria-labelledby="recent-title">
+    <div class="card-heading"><h2 id="recent-title">Recent checks</h2><span class="muted">Most recent 12</span></div>
+    <ol id="decision-trace"><li class="muted">Waiting for the first sound check.</li></ol>
+  </section>
+
+  <section class="card" aria-labelledby="detection-title">
+    <div class="card-heading"><h2 id="detection-title">Detections</h2></div>
     <ul id="log"><li class="muted">Nothing yet.</li></ul>
-  </div>
+  </section>
 
   <p class="muted">Only lighter becomes a Nope habit (Smoking). Make a Smoking rule in Nope first. The sound never leaves this computer.</p>
 </main>

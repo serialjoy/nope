@@ -18,6 +18,11 @@ let replayPlaying = false;
 // disconnects, so its result must not be allowed to report against a new session.
 let inputGeneration = 0;
 let stepGeneration = null;
+let telemetryTimer = null;
+let lastDecisionKey = "";
+const recentChecks = [];
+const maxRecentChecks = 12;
+const staleMotionAfterMs = 1500;
 
 function setState(text) { $("state").textContent = text; }
 function log(text, cls = "") {
@@ -36,10 +41,10 @@ function hasActiveInput() {
 }
 
 function clearDetectorInput() {
-  detector.ring.data.fill(0);
-  detector.ring.filled = 0;
-  detector.motion.length = 0;
-  detector.status = { ...detector.status, scores: {}, motionActive: false, silent: true };
+  detector.resetInput();
+  lastDecisionKey = "";
+  recentChecks.length = 0;
+  renderDecisionTrace();
   $("timing").textContent = "–";
   render();
 }
@@ -54,17 +59,206 @@ const detector = new Detector({
   },
 });
 detector.options.requireMotion = $("require-motion").checked;
-$("require-motion").addEventListener("change", (e) => { detector.options.requireMotion = e.target.checked; });
+$("require-motion").addEventListener("change", (e) => { detector.options.requireMotion = e.target.checked; render(); });
+
+function finite(value) { return typeof value === "number" && Number.isFinite(value); }
+function friendlyLabel(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Sound"; }
+function percent(value) { return finite(value) ? `${Math.round(value * 100)}%` : "—"; }
+function degrees(value) { return finite(value) ? `${value.toFixed(1)}°/s` : "—"; }
+function age(value) {
+  if (!finite(value)) return "—";
+  if (value < 1000) return `${Math.max(0, Math.round(value))} ms ago`;
+  return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} s ago`;
+}
+function cooldown(value) {
+  if (!finite(value) || value <= 0) return "Ready";
+  return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} s`;
+}
+function timeOf(value) {
+  const stamp = finite(value) ? value : Date.parse(value);
+  return Number.isFinite(stamp) ? new Date(stamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "Just now";
+}
+
+function decisionCopy(decision, audio, lighterGate) {
+  const top = decision?.topLabel ? `${friendlyLabel(decision.topLabel)} ${percent(decision.topScore)}` : "No sound score yet";
+  const target = friendlyLabel(decision?.target || "lighter");
+  const targetScore = percent(decision?.targetScore);
+  const threshold = percent(decision?.threshold);
+  switch (decision?.reason) {
+    case "warming_up": return { title: "Collecting audio", detail: `${finite(audio?.bufferedSeconds) ? audio.bufferedSeconds.toFixed(1) : "0.0"} of ${finite(audio?.requiredSeconds) ? audio.requiredSeconds : "4"} seconds ready.` };
+    case "quiet": return { title: "Waiting for sound", detail: `Audio is quiet (peak ${finite(decision?.audioPeak) ? decision.audioPeak.toFixed(3) : "—"}).` };
+    case "other_sound": return { title: "Other sound won", detail: `${top}; ${target} was ${targetScore}.` };
+    case "low_confidence": return { title: `${target} below confidence`, detail: `${target} was ${targetScore}; it needs ${threshold}.` };
+    case "insufficient_motion": return { title: "Wrist motion too low", detail: `Movement strength was ${degrees(decision?.motionStd)}; it needs ${degrees(decision?.motionThreshold)}.` };
+    case "cooldown": return { title: "Repeat cooldown", detail: `${cooldown(decision?.cooldownRemainingMs)} remains before another ${target.toLowerCase()} hit can be accepted.` };
+    case "confirming": return { title: "Confirming lighter", detail: `${target} was ${targetScore}. Confirmation ${lighterGate?.confirmationCount || 0} of ${lighterGate?.confirmationRequired || 2}; another fresh qualifying check is needed.` };
+    case "awaiting_clear": return { title: "Waiting for the signal to clear", detail: `Clear checks ${lighterGate?.clearCount || 0} of ${lighterGate?.clearRequired || 2} below ${percent(lighterGate?.resetThreshold ?? 0.4)} are needed before the next hit can be armed.` };
+    case "waiting_for_audio": return { title: "Waiting for fresh audio", detail: "This window has not changed, so it cannot confirm or rearm a hit." };
+    case "detected": return { title: "Accepted detection", detail: (decision?.motionRequired ?? detector.options.requireMotion) ? `${target} was ${targetScore}; movement passed the gate.` : `${target} was ${targetScore}; the motion filter was off.` };
+    case "classifier_error": return { title: "Sound check failed", detail: "The model could not score this audio window. It was not accepted." };
+    default: return { title: "Waiting for audio", detail: "The detector will explain the first blocker it sees." };
+  }
+}
+
+function motionSummary(motion) {
+  if (!detector.options.requireMotion) return { label: "Filter off", tone: "gate-waiting", note: "The sound check is not using wrist movement. Live motion is still shown." };
+  if (!hasActiveInput()) return { label: "Disconnected", tone: "gate-waiting", note: "Not receiving motion. Connect a band or start a replay." };
+  if (!motion?.latest) return { label: "Collecting", tone: "gate-waiting", note: "Waiting for the first gyroscope packet." };
+  if (finite(motion.ageMs) && motion.ageMs > staleMotionAfterMs) return { label: "Stale", tone: "gate-waiting", note: `The latest gyroscope packet is ${age(motion.ageMs)}.` };
+  if ((motion.sampleCount || 0) < (motion.minimumSamples || 20)) return { label: "Collecting", tone: "gate-waiting", note: `Collecting motion samples (${motion.sampleCount || 0} of ${motion.minimumSamples || 20}).` };
+  if (motion.active) return { label: "On", tone: "gate-on", note: "Recent wrist movement is above the movement threshold." };
+  return { label: "Off", tone: "gate-off", note: "Recent wrist movement is below the movement threshold." };
+}
+
+function lighterReadiness(gate, decision, cooldownRemainingMs) {
+  if (!hasActiveInput()) return "Disconnected";
+  if (decision?.reason === "warming_up") return "Collecting audio";
+  if (!gate) return "Checking";
+  if (!gate.armed) return `Waiting for signal clear ${gate.clearCount || 0}/${gate.clearRequired || 2}`;
+  if (decision?.reason === "confirming") return `Confirming ${gate.confirmationCount || 0}/${gate.confirmationRequired || 2}`;
+  if (decision?.reason === "waiting_for_audio") return "Waiting for fresh audio";
+  if (finite(cooldownRemainingMs) && cooldownRemainingMs > 0) return "Armed · cooldown";
+  return "Ready for next lighter";
+}
+
+function renderDecisionTrace() {
+  const list = $("decision-trace");
+  list.replaceChildren();
+  if (!recentChecks.length) {
+    const empty = document.createElement("li");
+    empty.className = "muted";
+    empty.textContent = "Waiting for the first sound check.";
+    list.append(empty);
+    return;
+  }
+  for (const item of recentChecks) {
+    const row = document.createElement("li");
+    const time = document.createElement("time");
+    time.textContent = timeOf(item.at);
+    const reason = document.createElement("span");
+    reason.className = "trace-reason";
+    reason.textContent = item.title;
+    const detail = document.createElement("span");
+    detail.className = "trace-detail";
+    detail.textContent = item.detail;
+    row.append(time, reason, detail);
+    list.append(row);
+  }
+}
+
+function rememberDecision(decision, audio, lighterGate) {
+  if (!decision?.reason) return;
+  const key = decision.checkId ? `check:${decision.checkId}` : finite(decision.at) ? `at:${decision.at}:${decision.reason}` : "";
+  if (!key || key === lastDecisionKey) return;
+  lastDecisionKey = key;
+  const copy = decisionCopy(decision, audio, lighterGate);
+  const sound = decision.topLabel ? `${friendlyLabel(decision.topLabel)} ${percent(decision.topScore)}` : "No sound score";
+  const movement = finite(decision.motionStd) ? `movement ${degrees(decision.motionStd)}` : "movement unavailable";
+  recentChecks.unshift({ at: decision.at, title: copy.title, detail: `${sound} · ${movement}` });
+  if (recentChecks.length > maxRecentChecks) recentChecks.length = maxRecentChecks;
+  renderDecisionTrace();
+}
+
+function drawGyroTrace(motion) {
+  const canvas = $("gyro-trace");
+  const bounds = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds.width));
+  const height = Math.max(1, Math.round(bounds.height));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+  }
+  const context = canvas.getContext("2d");
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const styles = getComputedStyle(document.documentElement);
+  const background = styles.getPropertyValue("--bg").trim() || "#fff";
+  const line = styles.getPropertyValue("--line").trim() || "rgba(22,22,22,.14)";
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  const history = Array.isArray(motion?.history) ? motion.history.filter((point) => finite(point?.t)) : [];
+  const latest = motion?.latest;
+  const reference = finite(latest?.t) ? latest.t + Math.max(0, motion?.ageMs || 0) : Date.now();
+  const start = reference - 10000;
+  const points = history.filter((point) => point.t >= start && point.t <= reference);
+  const values = points.flatMap((point) => [point.gx, point.gy, point.gz]).filter(finite);
+  const extent = Math.max(25, ...values.map((value) => Math.abs(value)));
+  const range = Math.ceil(extent / 25) * 25;
+  $("gyro-range").textContent = `±${range}°/s scale`;
+  const inset = 10;
+  const graphHeight = Math.max(1, height - inset * 2);
+  const xFor = (point) => inset + Math.max(0, Math.min(1, (point.t - start) / 10000)) * Math.max(1, width - inset * 2);
+  const yFor = (value) => height / 2 - (value / range) * (graphHeight / 2);
+
+  context.strokeStyle = line;
+  context.lineWidth = 1;
+  for (let step = 0; step <= 4; step += 1) {
+    const y = inset + (graphHeight * step) / 4;
+    context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke();
+  }
+  const stroke = (axis, color) => {
+    let started = false;
+    context.beginPath();
+    for (const point of points) {
+      if (!finite(point[axis])) continue;
+      const x = xFor(point); const y = yFor(point[axis]);
+      if (started) context.lineTo(x, y); else { context.moveTo(x, y); started = true; }
+    }
+    if (!started) return;
+    context.strokeStyle = color;
+    context.lineWidth = 1.7;
+    context.stroke();
+  };
+  stroke("gx", styles.getPropertyValue("--blue").trim() || "#2775d8");
+  stroke("gy", styles.getPropertyValue("--red").trim() || "#d24545");
+  stroke("gz", styles.getPropertyValue("--violet").trim() || "#7653ce");
+}
+
+function renderDiagnostics() {
+  const diagnostics = detector.diagnostics();
+  const motion = diagnostics?.motion || {};
+  const audio = diagnostics?.audio || {};
+  const decision = diagnostics?.decision || {};
+  const latest = motion.latest || {};
+  $("gyro-x").textContent = degrees(latest.gx);
+  $("gyro-y").textContent = degrees(latest.gy);
+  $("gyro-z").textContent = degrees(latest.gz);
+  $("motion-strength").textContent = `${degrees(motion.std)} / ${degrees(motion.threshold)}`;
+  $("motion-samples").textContent = `${motion.sampleCount || 0} / ${motion.minimumSamples || 20} min`;
+  $("motion-age").textContent = age(motion.ageMs);
+  const summary = motionSummary(motion);
+  const gate = $("motion-gate");
+  gate.textContent = summary.label;
+  gate.className = `pill ${summary.tone}`;
+  $("motion-note").textContent = summary.note;
+  const lighterGate = diagnostics?.gates?.lighter;
+  const copy = decisionCopy(decision, audio, lighterGate);
+  $("decision-reason").textContent = copy.title;
+  $("decision-detail").textContent = copy.detail;
+  $("cooldown-lighter").textContent = cooldown(diagnostics?.cooldowns?.lighter);
+  $("cooldown-can_opening").textContent = cooldown(diagnostics?.cooldowns?.can_opening);
+  $("lighter-state").textContent = lighterReadiness(lighterGate, decision, diagnostics?.cooldowns?.lighter);
+  drawGyroTrace(motion);
+  rememberDecision(decision, audio, lighterGate);
+}
+
+function startTelemetry() {
+  if (telemetryTimer) return;
+  telemetryTimer = window.setInterval(renderDiagnostics, 100);
+  renderDiagnostics();
+}
 
 function render() {
-  const { scores, motionActive, silent } = detector.status;
+  const { scores, silent } = detector.status;
   for (const kind of ["lighter", "can_opening"]) {
     const p = scores[kind] ?? 0;
     $(`p-${kind}`).textContent = silent || scores[kind] === undefined ? "–" : `${Math.round(p * 100)}%`;
     $(`b-${kind}`).style.width = `${Math.round(p * 100)}%`;
   }
-  $("motion").textContent = motionActive ? "moving" : "still";
   $("listening").textContent = silent ? "quiet" : "sound";
+  renderDiagnostics();
 }
 
 function startLoop() {
@@ -188,6 +382,7 @@ async function playRecording() {
     bandNumber = config.bandNumber ?? bandNumber;
     reporter.bandNumber = bandNumber;
   } catch { /* keep the default */ }
+  startTelemetry();
   if (!navigator.bluetooth && !replay && !pretend) {
     $("hint").textContent = "This browser has no Web Bluetooth. Open this page in Chrome or Edge on a computer.";
   }

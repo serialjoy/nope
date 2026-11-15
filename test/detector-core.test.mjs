@@ -30,23 +30,24 @@ test("AudioRing keeps the newest samples and reports when full", () => {
 });
 
 test("fires once on a confident target with wrist motion, then respects the cooldown", async () => {
-  const s = setup({ scores: { lighter: 0.8, can_opening: 0.1, rain: 0.1 } });
+  const s = setup({ scores: { lighter: 0.1, can_opening: 0.8, rain: 0.1 } });
   s.fill(); s.shake();
   const first = await s.detector.step();
-  assert.equal(first.kind, "lighter");
+  assert.equal(first.kind, "can_opening");
   assert.equal(first.motion_active, true);
   assert.equal(await s.detector.step(), null, "cooldown");
-  s.now.t += 16_000; s.shake();
+  s.now.t += 6_000; s.shake(); s.detector.feedAudio(loud());
   assert.equal((await s.detector.step()).id, 2, "fires again after the cooldown");
 });
 
 test("motion gate: no wrist motion, no event", async () => {
-  const s = setup({ scores: { lighter: 0.9, can_opening: 0.0 } });
+  const s = setup({ scores: { lighter: 0.0, can_opening: 0.9 } });
   s.fill();
   assert.equal(await s.detector.step(), null);
   assert.equal(s.detector.status.motionActive, false);
   s.detector.options.requireMotion = false;
-  assert.equal((await s.detector.step()).kind, "lighter");
+  s.detector.feedAudio(loud());
+  assert.equal((await s.detector.step()).kind, "can_opening");
 });
 
 test("needs the target to be the top label and above the threshold", async () => {
@@ -67,6 +68,186 @@ test("silence skips the classifier; a half-empty buffer does nothing", async () 
   detector.feedAudio(quiet());
   assert.equal(await detector.step(), null);
   assert.equal(calls, 0);
+});
+
+test("diagnostics shows live wrist motion even while quiet audio skips the classifier", async () => {
+  const now = { t: 1_000_000 };
+  const detector = new Detector({ classify: async () => { throw new Error("quiet input must not classify"); }, now: () => now.t });
+  for (let i = 0; i < 4; i++) detector.feedAudio(quiet());
+  for (let i = 0; i < 100; i++) {
+    now.t += 20;
+    detector.feedMotion(i % 2 ? 300 : 20, 4, -2);
+  }
+  assert.equal(await detector.step(), null);
+  const first = detector.diagnostics();
+  assert.equal(first.decision.reason, "quiet");
+  assert.equal(first.audio.silent, true);
+  assert.equal(first.audio.bufferedSeconds, 4);
+  assert.equal(first.motion.active, true);
+  assert.equal(first.motion.sampleCount, 100);
+  assert.ok(first.motion.std > first.motion.threshold);
+  assert.deepEqual(first.motion.latest, { t: now.t, gx: 300, gy: 4, gz: -2 });
+  assert.equal(first.motion.ageMs, 0);
+  assert.equal(first.motion.history.length, 100);
+  first.motion.history[0].gx = -1;
+  assert.notEqual(detector.diagnostics().motion.history[0].gx, -1, "diagnostics returns fresh copies");
+});
+
+test("diagnostics counts down the five-second cooldown and resets it for a repeated hit", async () => {
+  const s = setup({ scores: { lighter: 0.1, can_opening: 0.9 } });
+  s.fill(); s.shake();
+  assert.equal((await s.detector.step()).id, 1);
+  assert.equal(s.detector.diagnostics().cooldowns.can_opening, 5_000);
+  assert.equal(s.detector.diagnostics().decision.cooldownRemainingMs, 5_000);
+
+  s.now.t += 2_000;
+  s.detector.feedAudio(loud());
+  assert.equal(await s.detector.step(), null);
+  let diagnostics = s.detector.diagnostics();
+  assert.equal(diagnostics.decision.reason, "cooldown");
+  assert.equal(diagnostics.cooldowns.can_opening, 3_000);
+  assert.equal(diagnostics.decision.cooldownRemainingMs, 3_000);
+
+  s.now.t += 3_000;
+  for (let i = 0; i < 100; i++) s.detector.feedMotion(i % 2 ? 300 : 20, 0, 0);
+  s.detector.feedAudio(loud());
+  assert.equal((await s.detector.step()).id, 2);
+  diagnostics = s.detector.diagnostics();
+  assert.equal(diagnostics.decision.reason, "detected");
+  assert.equal(diagnostics.cooldowns.can_opening, 5_000);
+});
+
+test("resetInput clears monitor inputs without resetting accepted-event cooldowns or IDs", async () => {
+  const s = setup({ scores: { lighter: 0.1, can_opening: 0.9 } });
+  s.fill(); s.shake();
+  assert.equal((await s.detector.step()).id, 1);
+  const cooldown = s.detector.diagnostics().cooldowns.can_opening;
+  s.detector.resetInput();
+  const diagnostics = s.detector.diagnostics();
+  assert.equal(diagnostics.audio.bufferedSeconds, 0);
+  assert.equal(diagnostics.motion.sampleCount, 0);
+  assert.equal(diagnostics.motion.latest, null);
+  assert.deepEqual(diagnostics.motion.history, []);
+  assert.equal(diagnostics.decision.reason, "warming_up");
+  assert.equal(diagnostics.cooldowns.can_opening, cooldown, "reset does not permit an immediate duplicate hit");
+  assert.equal(s.detector.events.length, 1);
+  assert.equal(await s.detector.step(), null);
+});
+
+test("motion history is capped to ten seconds and one thousand raw samples", () => {
+  const now = { t: 0 };
+  const detector = new Detector({ classify: async () => ({}), now: () => now.t });
+  for (let i = 0; i < 1_005; i++) {
+    now.t += 1;
+    detector.feedMotion(i, i + 1, i + 2);
+  }
+  let diagnostics = detector.diagnostics();
+  assert.equal(diagnostics.motion.history.length, 1_000);
+  assert.equal(diagnostics.motion.latest.t, now.t);
+
+  now.t += 10_001;
+  detector.feedMotion(1, 2, 3);
+  diagnostics = detector.diagnostics();
+  assert.deepEqual(diagnostics.motion.history, [{ t: now.t, gx: 1, gy: 2, gz: 3 }]);
+});
+
+test("empty classifier output records a classifier error and cannot create a hit", async () => {
+  const s = setup({ scores: {} });
+  s.fill(); s.shake();
+  assert.equal(await s.detector.step(), null);
+  const diagnostics = s.detector.diagnostics();
+  assert.equal(diagnostics.decision.reason, "classifier_error");
+  assert.equal(diagnostics.decision.target, null);
+  assert.equal(s.events.length, 0);
+});
+
+test("lighter needs fresh two-check confirmation, a clear, and never blocks can-opening", async () => {
+  const now = { t: 1_000_000 };
+  let scores = { lighter: 0.74, can_opening: 0.1 };
+  let calls = 0;
+  const detector = new Detector({
+    classify: async () => { calls += 1; return scores; },
+    now: () => now.t,
+  });
+  const move = () => { for (let i = 0; i < 100; i++) detector.feedMotion(i % 2 ? 300 : 20, 0, 0); };
+  const freshLoud = () => detector.feedAudio(loud());
+  const freshQuiet = () => { for (let i = 0; i < 4; i++) detector.feedAudio(quiet()); };
+  for (let i = 0; i < 4; i++) freshLoud();
+
+  move();
+  assert.equal(await detector.step(), null, "a marginal lighter score is rejected");
+  assert.equal(detector.diagnostics().decision.reason, "low_confidence");
+
+  scores = { lighter: 0.9, can_opening: 0.1 };
+  now.t += 500; move(); freshLoud();
+  assert.equal(await detector.step(), null);
+  assert.equal(detector.diagnostics().decision.reason, "confirming");
+  assert.equal(detector.diagnostics().gates.lighter.confirmationCount, 1);
+  const afterFirstConfirmCalls = calls;
+  now.t += 500; move();
+  assert.equal(await detector.step(), null, "unchanged audio cannot confirm");
+  assert.equal(detector.diagnostics().decision.reason, "waiting_for_audio");
+  assert.equal(calls, afterFirstConfirmCalls);
+
+  now.t += 500; move(); freshLoud();
+  assert.equal((await detector.step()).kind, "lighter");
+  assert.equal(detector.diagnostics().gates.lighter.armed, false);
+  now.t += 6_000; move(); freshLoud();
+  assert.equal(await detector.step(), null, "cooldown cannot rearm sustained lighter audio");
+  assert.equal(detector.diagnostics().decision.reason, "awaiting_clear");
+
+  scores = { lighter: 0.1, can_opening: 0.9 };
+  now.t += 500; move(); freshLoud();
+  assert.equal((await detector.step()).kind, "can_opening", "a disarmed lighter must not suppress can-opening");
+  assert.equal(detector.diagnostics().gates.lighter.clearCount, 1);
+  now.t += 500; freshQuiet();
+  assert.equal(await detector.step(), null);
+  assert.equal(detector.diagnostics().gates.lighter.armed, true, "two fresh clear windows rearm lighter");
+
+  scores = { lighter: 0.9, can_opening: 0.1 };
+  now.t += 500; move(); freshLoud();
+  assert.equal(await detector.step(), null);
+  now.t += 500; move(); freshLoud();
+  assert.equal((await detector.step()).kind, "lighter", "a new two-check signal can fire after clear and cooldown");
+});
+
+test("invalid fresh classifier output breaks a lighter confirmation streak", async () => {
+  const now = { t: 1_000_000 };
+  let scores = { lighter: 0.9, can_opening: 0.1 };
+  const detector = new Detector({ classify: async () => scores, now: () => now.t });
+  const move = () => { for (let i = 0; i < 100; i++) detector.feedMotion(i % 2 ? 300 : 20, 0, 0); };
+  const fresh = () => detector.feedAudio(loud());
+  for (let i = 0; i < 4; i++) fresh();
+  move();
+  assert.equal(await detector.step(), null);
+  assert.equal(detector.diagnostics().gates.lighter.confirmationCount, 1);
+  scores = {};
+  now.t += 500; move(); fresh();
+  assert.equal(await detector.step(), null);
+  assert.equal(detector.diagnostics().decision.reason, "classifier_error");
+  assert.equal(detector.diagnostics().gates.lighter.confirmationCount, 0);
+  scores = { lighter: 0.9, can_opening: 0.1 };
+  now.t += 500; move(); fresh();
+  assert.equal(await detector.step(), null, "an error cannot bridge two confirmations");
+  assert.equal(detector.diagnostics().decision.reason, "confirming");
+});
+
+test("resetInput ignores a classifier result that belongs to removed input", async () => {
+  const now = { t: 1_000_000 };
+  let resolveScores;
+  const detector = new Detector({
+    classify: async () => new Promise((resolve) => { resolveScores = resolve; }),
+    now: () => now.t,
+  });
+  for (let i = 0; i < 4; i++) detector.feedAudio(loud());
+  for (let i = 0; i < 100; i++) detector.feedMotion(i % 2 ? 300 : 20, 0, 0);
+  const pending = detector.step();
+  detector.resetInput();
+  resolveScores({ lighter: 0.9, can_opening: 0.1 });
+  assert.equal(await pending, null);
+  assert.equal(detector.events.length, 0);
+  assert.equal(detector.diagnostics().decision.reason, "warming_up");
+  assert.equal(detector.diagnostics().gates.lighter.armed, true);
 });
 
 function fakeNope(rules) {
