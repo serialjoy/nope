@@ -77,7 +77,7 @@
       <span class="pill" id="state">starting…</span>
     </div>
     <p class="muted" id="hint">Double-tap the band first (its light blinks blue), then press Connect and pick it from the list.</p>
-    <p class="muted" id="model">Movement only · microphone off</p>
+    <p class="muted" id="model">Movement detection ready · audio monitor loading…</p>
     <p class="muted" id="reset-note">Stuck signal? Clear movement without disconnecting the band.</p>
   </div>
 
@@ -109,16 +109,17 @@
     </section>
   </section>
 
-  <div class="card" hidden style="display:none">
-    <div class="card-heading"><h2>Sound confidence</h2><span class="muted">Listening: <span id="listening">—</span></span></div>
+  <div class="card">
+    <div class="card-heading"><h2>Lighter sound monitor</h2><span class="muted">Listening: <span id="listening">—</span></span></div>
     <div class="meter"><b><span>Lighter</span><span id="p-lighter">–</span></b><div class="bar"><i id="b-lighter"></i></div></div>
     <div class="meter"><b><span>Can opening</span><span id="p-can_opening">–</span></b><div class="bar"><i id="b-can_opening"></i></div></div>
-    <label class="muted"><input type="checkbox" id="require-motion" checked> Only count a sound if the wrist moved (fewer false alarms)</label>
+    <p class="muted">Audio is shown here separately. Wrist movement still controls warnings and charges.</p>
+    <label class="muted" hidden style="display:none"><input type="checkbox" id="require-motion" checked> Only count a sound if the wrist moved (fewer false alarms)</label>
   </div>
 
   <section class="card policy-card" aria-label="Current detector requirement">
     <p>First movement → warning. Next movement → card charge.</p>
-    <small>Lower your hand and hold still between movements. Wait at least 5 seconds between hits. Sound is ignored.</small>
+    <small>Lower your hand and hold still between movements. Wait at least 5 seconds between hits. Sound is monitored separately and is not required to trigger a hit.</small>
   </section>
 
   <section class="card" aria-labelledby="recent-title">
@@ -131,7 +132,7 @@
     <ul id="log"><li class="muted">Nothing yet.</li></ul>
   </section>
 
-  <p class="muted">Create a Smoking rule in Nope first. This mode uses wrist movement as the trigger; it does not identify smoking.</p>
+  <p class="muted">Create a Smoking rule in Nope first. Wrist movement remains the trigger. The lighter sound monitor processes audio on this computer.</p>
 </main>
 <script type="module" src="/detector/page.mjs"></script>
 </body>

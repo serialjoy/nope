@@ -1,5 +1,5 @@
 // The detector page: band motion -> Nope's /api/events.
-import { Band, SimTransport } from "/vendor/vexo/index.js";
+import { Band, BandAudio, SimTransport } from "/vendor/vexo/index.js";
 import { Detector, NopeReporter, SAMPLE_RATE } from "./core.mjs";
 
 const $ = (id) => document.getElementById(id);
@@ -8,6 +8,8 @@ const pretend = params.has("pretend");             // test only: a simulated ban
 const replay = params.get("replay");               // test only: ?replay=/detector/test/x.wav&motion=/detector/test/x.json
 
 let band = null;
+let sound = null;
+let classify = null;
 let loop = null;
 let ready = false;
 let pendingReset = null;
@@ -64,6 +66,7 @@ function disableConnectButtons() {
 
 function clearDetectorInput() {
   detector.resetInput();
+  audioDetector.resetInput();
   lastDecisionKey = "";
   recentChecks.length = 0;
   renderDecisionTrace();
@@ -81,6 +84,12 @@ const detector = new Detector({
   },
 });
 
+// The audio monitor never reports to Nope. Movement remains the only trigger.
+const audioDetector = new Detector({
+  classify: (audio) => classify(audio),
+  options: { requireMotion: false },
+});
+
 function cancelMovementReset() {
   if (pendingReset) clearTimeout(pendingReset.timer);
   pendingReset = null;
@@ -90,6 +99,7 @@ function clearMovement(message = "Movement cleared. Ready for fresh movement; th
   cancelMovementReset();
   if (!hasActiveInput()) return;
   detector.clearMovement();
+  audioDetector.resetInput();
   log(message);
   render();
 }
@@ -307,7 +317,7 @@ function startTelemetry() {
 }
 
 function render() {
-  const { scores, silent } = detector.status;
+  const { scores, silent } = audioDetector.status;
   for (const kind of ["lighter", "can_opening"]) {
     const p = scores[kind] ?? 0;
     $(`p-${kind}`).textContent = silent || scores[kind] === undefined ? "–" : `${Math.round(p * 100)}%`;
@@ -339,6 +349,23 @@ function startLoop() {
   }, 100);
 }
 
+function startAudioLoop() {
+  let busy = false;
+  setInterval(async () => {
+    if (busy || !classify || !hasActiveInput()) return;
+    busy = true;
+    const generation = inputGeneration;
+    try {
+      await audioDetector.step();
+      if (generation === inputGeneration) render();
+    } catch (error) {
+      if (generation === inputGeneration) log(`Audio monitor: ${error.message}`);
+    } finally {
+      busy = false;
+    }
+  }, 1000);
+}
+
 async function connect(mode) {
   if (mode !== "bluetooth" && mode !== "serial") return;
   if (connectionPending || hasActiveInput()) return;
@@ -353,14 +380,21 @@ async function connect(mode) {
     band = await Band.connect(bandNumber, transport);   // must come from the click that called this
     const connectedBand = band;
     band.on("motion", (m) => detector.feedMotion(m.gx, m.gy, m.gz));
+    const connectedSound = new BandAudio((samples) => {
+      if (band === connectedBand && sound === connectedSound) audioDetector.feedAudio(samples);
+    });
+    sound = connectedSound;
+    band.on("audio", (packet) => {
+      if (band === connectedBand && sound === connectedSound) connectedSound.push(packet);
+    });
     band.on("disconnect", ({ reason }) => {
       if (band !== connectedBand) return;
       if (reason !== "closed") { setState("band lost"); log(`The band disconnected (${reason}). Double-tap it and connect again.`); }
       cleanup();
     });
-    await band.configure({ motion: 50, sensors: "both", audio: false });
+    await band.configure({ motion: 50, sensors: "both", audio: true });
     setState(`watching ${band.name} via ${connectionLabel}`);
-    $("hint").textContent = "Movement only. Lower your hand and hold still between hits. The microphone is off.";
+    $("hint").textContent = "Movement controls Nope. The microphone is on for the separate sound monitor; audio is processed on this computer.";
     $("disconnect").disabled = false;
     syncConnectButtons();
     log(`Connected to ${band.name} via ${connectionLabel}.`);
@@ -381,7 +415,10 @@ async function cleanup() {
   cancelMovementReset();
   inputGeneration += 1;
   replayPlaying = false;
+  const oldSound = sound;
+  sound = null;
   band = null;
+  oldSound?.close?.();
   clearDetectorInput();
   await reporter.stopAll().catch(() => {});
   $("disconnect").disabled = true;
@@ -428,7 +465,7 @@ async function playRecording() {
   const chunk = SAMPLE_RATE / 10;                    // 100 ms at a time, in real time
   for (let i = 0, step = 0; i * chunk < audio.length; i++, step++) {
     if (!replayPlaying || generation !== inputGeneration) return;
-    detector.feedAudio(audio.subarray(i * chunk, (i + 1) * chunk));
+    audioDetector.feedAudio(audio.subarray(i * chunk, (i + 1) * chunk));
     for (const [gx, gy, gz] of motion.slice(step * 5, step * 5 + 5)) detector.feedMotion(gx, gy, gz);
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -453,9 +490,18 @@ async function playRecording() {
   }
   openMovementResets();
   ready = true;
-  $("model").textContent = "Movement only · microphone off";
+  $("model").textContent = "Movement ready · loading audio monitor…";
   setState(replay ? "ready" : "ready: connect the band");
   startLoop();
+  startAudioLoop();
   if (replay) playRecording();
   else syncConnectButtons();
+  try {
+    const { loadClap } = await import("./clap.mjs");
+    classify = await loadClap((text) => { $("model").textContent = `Audio monitor: ${text}`; });
+    $("model").textContent = "Audio monitor ready · movement still controls warnings and charges";
+  } catch (error) {
+    $("model").textContent = `Audio monitor unavailable: ${error.message}. Movement detection is still ready.`;
+    log('Audio monitor could not load. Run npm run setup:detector if its files are missing.');
+  }
 })();

@@ -113,7 +113,7 @@ Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, th
 
 ## Band detector in the browser
 
-`public/detector.html` watches band 58's wrist movement and reports to this app. It needs Chrome or Edge on the same computer as this server. The microphone is off and no sound model loads in this mode.
+`public/detector.html` watches band 58's wrist movement and reports to this app. It needs Chrome or Edge on the same computer as this server. The microphone is on for a separate lighter-sound monitor. Its model runs locally; sound is not required to trigger a warning or charge. Movement detection and connection controls work while that model loads, and continue if it fails.
 
 ```sh
 npm run setup:detector   # once: downloads about 90 MB (model, runtime) and copies the Vexo kit's JavaScript
@@ -127,10 +127,10 @@ After setup, first open <http://127.0.0.1:3000/band-check.html> in Chrome to che
    If Bluetooth keeps dropping, plug band 58 into the laptop with a USB data cable and choose **Connect via USB** instead. Pick the band's USB serial port; the kit verifies its band number before starting the detector.
 3. Move once for the warning. Lower your hand and hold still, then move again at least 5 seconds after the first hit for the test-card charge. Each hit posts `started` with a unique occurrence ID; the server handles the rule and payment.
 
-Movement uses a 0.6-second window with at least 20 fresh gyro samples and magnitude standard deviation above 25°/s. After a hit, two fresh stillness checks at least 250 ms apart (gyro RMS below 12.5°/s) rearm it. A 5-second minimum separates hits. Continuous movement and missing packets cannot rearm it. The core's original audio mode remains available to other callers; this page explicitly selects movement only.
+Movement uses a 0.6-second window with at least 20 fresh gyro samples and magnitude standard deviation above 25°/s. After a hit, two fresh stillness checks at least 250 ms apart (gyro RMS below 12.5°/s) rearm it. A 5-second minimum separates hits. Continuous movement and missing packets cannot rearm it. This remains the only source of Nope events. A second detector scores lighter/can-opening audio once per second for the sound panel; it never sends payment or warning events.
 
 If the movement signal stays latched, use **Clear movement** on the detector page. Responding to the first warning with **I stopped** or **False alarm** also schedules a detector clear three seconds after the response succeeds. These clears preserve the connection, event IDs, and five-second cooldown; only a fresh movement can create the next event. **I stopped** keeps the next charge armed, while **False alarm** cancels that warning as before.
 
-The live diagnostics show gyro X/Y/Z, packet age, movement strength, stillness rearming, and the remaining cooldown. Historical audio evaluation does not validate this movement-only trigger.
+The live diagnostics show gyro X/Y/Z, packet age, movement strength, stillness rearming, the remaining cooldown, and separate lighter/can-opening sound scores. Historical audio evaluation does not validate this movement-only trigger.
 
 Test pages (no band): `detector.html?pretend=1` uses the kit's simulated band; `detector.html?replay=/detector/test/x.wav&motion=/detector/test/x.json` plays a recording (files in `public/detector/test/`, not in git). `test/detector-core.test.mjs` covers the detection and episode logic.
