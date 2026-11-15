@@ -10,6 +10,8 @@ const replay = params.get("replay");               // test only: ?replay=/detect
 let band = null;
 let loop = null;
 let ready = false;
+let pendingReset = null;
+const seenResets = new Set();
 let bandNumber = 58;
 let replayPlaying = false;
 let connectionPending = false;
@@ -48,6 +50,7 @@ function canConnectUsb() {
 }
 
 function syncConnectButtons() {
+  $("clear-movement").disabled = !hasActiveInput();
   const available = ready;
   const unavailable = connectionPending || Boolean(band) || replayPlaying;
   $("connect").disabled = !available || unavailable || !canConnectBluetooth();
@@ -72,10 +75,57 @@ const detector = new Detector({
   options: { motionOnly: true },
   onEvent: (event) => {
     if (!hasActiveInput() || stepGeneration !== inputGeneration) return;
+    cancelMovementReset();
     log("Movement detected", "hit");
     reporter.report(event).catch((error) => log(`Nope: ${error.message}`));
   },
 });
+
+function cancelMovementReset() {
+  if (pendingReset) clearTimeout(pendingReset.timer);
+  pendingReset = null;
+}
+
+function clearMovement(message = "Movement cleared. Ready for fresh movement; the cooldown still applies.") {
+  cancelMovementReset();
+  if (!hasActiveInput()) return;
+  detector.clearMovement();
+  log(message);
+  render();
+}
+
+$("clear-movement").addEventListener("click", () => clearMovement());
+
+function openMovementResets() {
+  if (!("EventSource" in window)) return;
+  const source = new EventSource("/api/events");
+  source.addEventListener("detector-reset", (message) => {
+    let reset;
+    try { reset = JSON.parse(message.data); } catch { return; }
+    const episode = reporter.episodes.get("smoking");
+    if (!reset || reset.bandNumber !== bandNumber || !hasActiveInput()
+      || typeof reset.resetId !== "string" || seenResets.has(reset.resetId)
+      || !episode || episode.rule !== reset.ruleId || episode.occurrenceId !== reset.occurrenceId) return;
+    seenResets.add(reset.resetId);
+    if (seenResets.size > 200) seenResets.delete(seenResets.values().next().value);
+    cancelMovementReset();
+    const generation = inputGeneration;
+    const eventCount = detector.events.length;
+    const token = { deadline: Date.now() + 3000, timer: null };
+    pendingReset = token;
+    token.timer = setTimeout(() => {
+      if (pendingReset !== token) return;
+      pendingReset = null;
+      const current = reporter.episodes.get("smoking");
+      if (!hasActiveInput() || generation !== inputGeneration || eventCount !== detector.events.length
+        || !current || current.rule !== reset.ruleId || current.occurrenceId !== reset.occurrenceId) return;
+      clearMovement("Movement automatically cleared after your response. Ready for fresh movement.");
+    }, 3000);
+    log("Response received. Clearing movement in 3 seconds.");
+    render();
+  });
+  window.addEventListener("pagehide", () => { source.close(); cancelMovementReset(); }, { once: true });
+}
 
 function finite(value) { return typeof value === "number" && Number.isFinite(value); }
 function friendlyLabel(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Sound"; }
@@ -219,6 +269,10 @@ function drawGyroTrace(motion) {
 }
 
 function renderDiagnostics() {
+  $("clear-movement").disabled = !hasActiveInput();
+  $("reset-note").textContent = pendingReset
+    ? `Clearing movement in ${Math.max(0, (pendingReset.deadline - Date.now()) / 1000).toFixed(1)} s…`
+    : "Clear movement resets the signal without disconnecting. The 5-second cooldown still applies.";
   const diagnostics = detector.diagnostics();
   const motion = diagnostics?.motion || {};
   const audio = diagnostics?.audio || {};
@@ -324,6 +378,7 @@ async function connect(mode) {
 }
 
 async function cleanup() {
+  cancelMovementReset();
   inputGeneration += 1;
   replayPlaying = false;
   band = null;
@@ -396,6 +451,7 @@ async function playRecording() {
   if (!navigator.bluetooth && !replay && !pretend) {
     $("hint").textContent = "This browser has no Web Bluetooth. Open this page in Chrome or Edge on a computer.";
   }
+  openMovementResets();
   ready = true;
   $("model").textContent = "Movement only · microphone off";
   setState(replay ? "ready" : "ready: connect the band");

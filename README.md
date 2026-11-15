@@ -129,6 +129,8 @@ After setup, first open <http://127.0.0.1:3000/band-check.html> in Chrome to che
 
 Movement uses a 0.6-second window with at least 20 fresh gyro samples and magnitude standard deviation above 25°/s. After a hit, two fresh stillness checks at least 250 ms apart (gyro RMS below 12.5°/s) rearm it. A 5-second minimum separates hits. Continuous movement and missing packets cannot rearm it. The core's original audio mode remains available to other callers; this page explicitly selects movement only.
 
+If the movement signal stays latched, use **Clear movement** on the detector page. Responding to the first warning with **I stopped** or **False alarm** also schedules a detector clear three seconds after the response succeeds. These clears preserve the connection, event IDs, and five-second cooldown; only a fresh movement can create the next event. **I stopped** keeps the next charge armed, while **False alarm** cancels that warning as before.
+
 The live diagnostics show gyro X/Y/Z, packet age, movement strength, stillness rearming, and the remaining cooldown. Historical audio evaluation does not validate this movement-only trigger.
 
 Test pages (no band): `detector.html?pretend=1` uses the kit's simulated band; `detector.html?replay=/detector/test/x.wav&motion=/detector/test/x.json` plays a recording (files in `public/detector/test/`, not in git). `test/detector-core.test.mjs` covers the detection and episode logic.

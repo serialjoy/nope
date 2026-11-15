@@ -294,6 +294,22 @@ export class Detector {
     this.#recordDecision("warming_up", { at, audioPeak: 0, motion: this.#motionMetrics(at) });
   }
 
+  /** Discard movement evidence without changing audio, event IDs, or cooldowns. */
+  clearMovement() {
+    this.inputGeneration += 1;
+    this.motion.length = 0;
+    this.motionHistory.length = 0;
+    this.latestMotion = null;
+    this.motionRevision = 0;
+    this.lastCheckedMotionRevision = null;
+    this.#resetLighterCounters();
+    this.#resetMotionClear();
+    this.lighterGate.armed = true;
+    this.status = { ...this.status, motionActive: false };
+    const at = this.now();
+    this.#recordDecision("waiting_for_motion", { at, audioPeak: 0, motion: this.#motionMetrics(at) });
+  }
+
   #stepMotionOnly() {
     const at = this.now();
     const motion = this.#motionMetrics(at, MOTION_ONLY_WINDOW_MS);

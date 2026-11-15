@@ -295,8 +295,10 @@ export function createApp({
     return { ...rule, warningArmed: await store.warningArmed(rule.id) };
   }
 
-  function broadcastDetection(event) {
-    const message = `event: detection\ndata: ${JSON.stringify(event)}\n\n`;
+  function broadcastDetection(event) { broadcastEvent("detection", event); }
+
+  function broadcastEvent(name, event) {
+    const message = `event: ${name}\ndata: ${JSON.stringify(event)}\n\n`;
     for (const client of clients) {
       if (client.writableEnded || client.destroyed) {
         clients.delete(client);
@@ -446,7 +448,18 @@ export function createApp({
 
       const stopRuleId = routeRuleStopId(url.pathname);
       if (stopRuleId && method === "POST") {
-        const stopped = await corrections.stop(stopRuleId, validateDetectorStop(await readJson(request)));
+        const stopRequest = validateDetectorStop(await readJson(request));
+        const stopped = await corrections.stop(stopRuleId, stopRequest);
+        if (stopped.episode?.stage === 1 && stopped.episode.occurrenceId) {
+          broadcastEvent("detector-reset", {
+            resetId: `${stopped.episode.id}:${stopRequest.reason || "stopped"}`,
+            bandNumber: BAND_NUMBER,
+            ruleId: stopRuleId,
+            episodeId: stopped.episode.id,
+            occurrenceId: stopped.episode.occurrenceId,
+            delayMs: 3000,
+          });
+        }
         sendJson(response, 200, {
           ok: true,
           episodeId: stopped.episode?.id ?? null,

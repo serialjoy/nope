@@ -334,6 +334,37 @@ test("motionOnly preserves the five-second cooldown across rearm and input reset
   assert.equal(s.events.length, 2);
 });
 
+test("clearMovement drops a latched movement window without bypassing cooldowns or event IDs", async () => {
+  const s = motionOnlySetup();
+  s.active();
+  const first = await s.detector.step();
+  const firstAt = s.now.t;
+  assert.equal(first.id, 1);
+  assert.equal(s.events.length, 1);
+  assert.equal(s.detector.diagnostics().gates.lighter.armed, false, "the hit leaves the movement gate latched");
+
+  s.detector.clearMovement();
+  let diagnostics = s.detector.diagnostics();
+  assert.equal(diagnostics.motion.sampleCount, 0);
+  assert.equal(diagnostics.motion.latest, null);
+  assert.deepEqual(diagnostics.motion.history, []);
+  assert.equal(diagnostics.gates.lighter.armed, true, "clear arms the next fresh movement window");
+  assert.equal(diagnostics.decision.reason, "waiting_for_motion");
+  assert.equal(s.events.length, 1, "clearing never creates an event");
+
+  assert.equal(await s.detector.step(), null, "old movement cannot fire after clearing");
+  s.active();
+  assert.equal(await s.detector.step(), null, "twenty fresh samples still respect the five-second cooldown");
+  assert.equal(s.detector.diagnostics().decision.reason, "cooldown");
+  assert.equal(s.events.length, 1);
+
+  s.now.t = firstAt + 5_100;
+  s.active();
+  const second = await s.detector.step();
+  assert.equal(second.id, 2, "event identity advances only for a new post-cooldown hit");
+  assert.equal(s.events.length, 2);
+});
+
 function fakeNope(rules) {
   const sent = [];
   const fetchImpl = async (url, init = {}) => {
