@@ -113,3 +113,20 @@ npm test
 ```
 
 Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, repeat-occurrence charge deduplication, stop/pause behavior, and recording-request persistence, validation, cancellation, and idempotent acknowledgments. See [the simplified flow](tasks/simplify-flow.md) and [Teach Nope](tasks/teach-nope.md).
+
+## Band detector in the browser
+
+`public/detector.html` listens through band 58, spots a lighter or a can opening, and reports to this app. It needs Chrome or Edge (Web Bluetooth), on the same computer as this server. Nothing else has to run: the sound model (CLAP, 8-bit, 34 MB) runs in the page and the audio never leaves the computer.
+
+```sh
+npm run setup:detector   # once: downloads about 90 MB (model, runtime) and copies the Vexo kit's JavaScript from ../vexo-open-kit
+npm start
+```
+
+1. Make a **Smoking** rule in the app. A lighter strike is the evidence of smoking; a can opening has no Nope habit, so it is only shown on the detector page.
+2. Open <http://127.0.0.1:3000/detector.html>, double-tap the band, press **Connect band** and pick it. Keep this tab open.
+3. Each distinct detection posts `started` with a unique occurrence ID; rule handling and any test penalty stay with the server, as described above.
+
+A detection needs the lighter to be the most likely sound (at least 50%) **and** the wrist to have moved in the last 4 seconds, with 15 seconds between repeats. The "wrist moved" box can be switched off on the page. Evaluation on our recordings: lighter found in 14 of 18 clips with about 1 false alarm per 29 other sounds; can opening 33 of 61 with few false alarms; bottle caps are not reliable and are left out.
+
+Test pages (no band): `detector.html?pretend=1` uses the kit's simulated band; `detector.html?replay=/detector/test/x.wav&motion=/detector/test/x.json` plays a recording (files in `public/detector/test/`, not in git). `test/detector-core.test.mjs` covers the detection and episode logic.
