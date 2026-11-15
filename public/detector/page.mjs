@@ -1,7 +1,6 @@
-// The detector page: band (Web Bluetooth) -> CLAP in the browser -> Nope's /api/events.
-import { Band, BandAudio, SimTransport } from "/vendor/vexo/index.js";
+// The detector page: band motion -> Nope's /api/events.
+import { Band, SimTransport } from "/vendor/vexo/index.js";
 import { Detector, NopeReporter, SAMPLE_RATE } from "./core.mjs";
-import { loadClap } from "./clap.mjs";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -9,14 +8,13 @@ const pretend = params.has("pretend");             // test only: a simulated ban
 const replay = params.get("replay");               // test only: ?replay=/detector/test/x.wav&motion=/detector/test/x.json
 
 let band = null;
-let sound = null;
 let loop = null;
-let classify = null;
+let ready = false;
 let bandNumber = 58;
 let replayPlaying = false;
 let connectionPending = false;
-// Increment whenever input is removed. A CLAP call can finish after a band
-// disconnects, so its result must not be allowed to report against a new session.
+// Increment whenever input is removed so a finished detector step cannot report
+// against a new connection.
 let inputGeneration = 0;
 let stepGeneration = null;
 let telemetryTimer = null;
@@ -50,10 +48,10 @@ function canConnectUsb() {
 }
 
 function syncConnectButtons() {
-  const ready = Boolean(classify);
+  const available = ready;
   const unavailable = connectionPending || Boolean(band) || replayPlaying;
-  $("connect").disabled = !ready || unavailable || !canConnectBluetooth();
-  $("connect-usb").disabled = !ready || unavailable || !canConnectUsb();
+  $("connect").disabled = !available || unavailable || !canConnectBluetooth();
+  $("connect-usb").disabled = !available || unavailable || !canConnectUsb();
 }
 
 function disableConnectButtons() {
@@ -71,16 +69,13 @@ function clearDetectorInput() {
 }
 
 const detector = new Detector({
-  classify: (audio) => classify(audio),
+  options: { motionOnly: true },
   onEvent: (event) => {
     if (!hasActiveInput() || stepGeneration !== inputGeneration) return;
-    const label = event.kind === "lighter" ? "Lighter" : "Can opening";
-    log(`${label} detected (${Math.round(event.confidence * 100)}%${event.motion_active ? ", wrist moving" : ""})`, "hit");
+    log("Movement detected", "hit");
     reporter.report(event).catch((error) => log(`Nope: ${error.message}`));
   },
 });
-detector.options.requireMotion = $("require-motion").checked;
-$("require-motion").addEventListener("change", (e) => { detector.options.requireMotion = e.target.checked; render(); });
 
 function finite(value) { return typeof value === "number" && Number.isFinite(value); }
 function friendlyLabel(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Sound"; }
@@ -100,24 +95,13 @@ function timeOf(value) {
   return Number.isFinite(stamp) ? new Date(stamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "Just now";
 }
 
-function decisionCopy(decision, audio, lighterGate) {
-  const top = decision?.topLabel ? `${friendlyLabel(decision.topLabel)} ${percent(decision.topScore)}` : "No sound score yet";
-  const target = friendlyLabel(decision?.target || "lighter");
-  const targetScore = percent(decision?.targetScore);
-  const threshold = percent(decision?.threshold);
+function decisionCopy(decision, audio, gate) {
   switch (decision?.reason) {
-    case "warming_up": return { title: "Collecting audio", detail: `${finite(audio?.bufferedSeconds) ? audio.bufferedSeconds.toFixed(1) : "0.0"} of ${finite(audio?.requiredSeconds) ? audio.requiredSeconds : "4"} seconds ready.` };
-    case "quiet": return { title: "Waiting for sound", detail: `Audio is quiet (peak ${finite(decision?.audioPeak) ? decision.audioPeak.toFixed(3) : "—"}).` };
-    case "other_sound": return { title: "Other sound won", detail: `${top}; ${target} was ${targetScore}.` };
-    case "low_confidence": return { title: `${target} below confidence`, detail: `${target} was ${targetScore}; it needs ${threshold}.` };
-    case "insufficient_motion": return { title: "Wrist motion too low", detail: `Movement strength was ${degrees(decision?.motionStd)}; it needs ${degrees(decision?.motionThreshold)}.` };
-    case "cooldown": return { title: "Repeat cooldown", detail: `${cooldown(decision?.cooldownRemainingMs)} remains before another ${target.toLowerCase()} hit can be accepted.` };
-    case "confirming": return { title: "Confirming lighter", detail: `${target} was ${targetScore}. Confirmation ${lighterGate?.confirmationCount || 0} of ${lighterGate?.confirmationRequired || 2}; another fresh qualifying check is needed.` };
-    case "awaiting_clear": return { title: "Waiting for the signal to clear", detail: `Clear checks ${lighterGate?.clearCount || 0} of ${lighterGate?.clearRequired || 2} below ${percent(lighterGate?.resetThreshold ?? 0.4)} are needed before the next hit can be armed.` };
-    case "waiting_for_audio": return { title: "Waiting for fresh audio", detail: "This window has not changed, so it cannot confirm or rearm a hit." };
-    case "detected": return { title: "Accepted detection", detail: (decision?.motionRequired ?? detector.options.requireMotion) ? `${target} was ${targetScore}; movement passed the gate.` : `${target} was ${targetScore}; the motion filter was off.` };
-    case "classifier_error": return { title: "Sound check failed", detail: "The model could not score this audio window. It was not accepted." };
-    default: return { title: "Waiting for audio", detail: "The detector will explain the first blocker it sees." };
+    case "detected": return { title: "Movement detected", detail: "Sent to Nope. Lower your hand and hold still before the next movement." };
+    case "awaiting_clear": return { title: "Lower your hand and hold still", detail: `Stillness checks ${gate?.clearCount || 0}/${gate?.clearRequired || 2}. One continuous movement counts once.` };
+    case "cooldown": return { title: "Give it a moment", detail: `${cooldown(decision?.cooldownRemainingMs)} until another movement can count.` };
+    case "waiting_for_motion": return { title: "Waiting for fresh movement data", detail: "Keep the band connected. Missing packets do not count as stillness." };
+    default: return { title: "Ready for wrist movement", detail: "Move once for the warning. A separate second movement triggers the charge." };
   }
 }
 
@@ -133,13 +117,10 @@ function motionSummary(motion) {
 
 function lighterReadiness(gate, decision, cooldownRemainingMs) {
   if (!hasActiveInput()) return "Disconnected";
-  if (decision?.reason === "warming_up") return "Collecting audio";
-  if (!gate) return "Checking";
-  if (!gate.armed) return `Waiting for signal clear ${gate.clearCount || 0}/${gate.clearRequired || 2}`;
-  if (decision?.reason === "confirming") return `Confirming ${gate.confirmationCount || 0}/${gate.confirmationRequired || 2}`;
-  if (decision?.reason === "waiting_for_audio") return "Waiting for fresh audio";
-  if (finite(cooldownRemainingMs) && cooldownRemainingMs > 0) return "Armed · cooldown";
-  return "Ready for next lighter";
+  if (!gate?.armed) return `Hold still ${gate?.clearCount || 0}/${gate?.clearRequired || 2}`;
+  if (finite(cooldownRemainingMs) && cooldownRemainingMs > 0) return `Wait ${cooldown(cooldownRemainingMs)}`;
+  if (decision?.reason === "waiting_for_motion") return "Waiting for band data";
+  return "Ready for next movement";
 }
 
 function renderDecisionTrace() {
@@ -148,7 +129,7 @@ function renderDecisionTrace() {
   if (!recentChecks.length) {
     const empty = document.createElement("li");
     empty.className = "muted";
-    empty.textContent = "Waiting for the first sound check.";
+    empty.textContent = "Waiting for the first movement check.";
     list.append(empty);
     return;
   }
@@ -173,7 +154,7 @@ function rememberDecision(decision, audio, lighterGate) {
   if (!key || key === lastDecisionKey) return;
   lastDecisionKey = key;
   const copy = decisionCopy(decision, audio, lighterGate);
-  const sound = decision.topLabel ? `${friendlyLabel(decision.topLabel)} ${percent(decision.topScore)}` : "No sound score";
+  const sound = "Movement only";
   const movement = finite(decision.motionStd) ? `movement ${degrees(decision.motionStd)}` : "movement unavailable";
   recentChecks.unshift({ at: decision.at, title: copy.title, detail: `${sound} · ${movement}` });
   if (recentChecks.length > maxRecentChecks) recentChecks.length = maxRecentChecks;
@@ -260,7 +241,7 @@ function renderDiagnostics() {
   $("decision-detail").textContent = copy.detail;
   $("cooldown-lighter").textContent = cooldown(diagnostics?.cooldowns?.lighter);
   $("cooldown-can_opening").textContent = cooldown(diagnostics?.cooldowns?.can_opening);
-  $("lighter-state").textContent = lighterReadiness(lighterGate, decision, diagnostics?.cooldowns?.lighter);
+  $("lighter-state").textContent = lighterReadiness(lighterGate, decision, diagnostics?.cooldowns?.lighter, audio);
   drawGyroTrace(motion);
   rememberDecision(decision, audio, lighterGate);
 }
@@ -285,7 +266,7 @@ function render() {
 function startLoop() {
   let busy = false;
   loop = setInterval(async () => {
-    if (busy || !classify || !hasActiveInput()) return;
+    if (busy || !ready || !hasActiveInput()) return;
     busy = true;
     const generation = inputGeneration;
     stepGeneration = generation;
@@ -301,7 +282,7 @@ function startLoop() {
       if (stepGeneration === generation) stepGeneration = null;
       busy = false;
     }
-  }, 1000);
+  }, 100);
 }
 
 async function connect(mode) {
@@ -318,16 +299,14 @@ async function connect(mode) {
     band = await Band.connect(bandNumber, transport);   // must come from the click that called this
     const connectedBand = band;
     band.on("motion", (m) => detector.feedMotion(m.gx, m.gy, m.gz));
-    sound = new BandAudio((samples) => detector.feedAudio(samples));
-    band.on("audio", (packet) => sound.push(packet));
     band.on("disconnect", ({ reason }) => {
       if (band !== connectedBand) return;
       if (reason !== "closed") { setState("band lost"); log(`The band disconnected (${reason}). Double-tap it and connect again.`); }
       cleanup();
     });
-    await band.configure({ motion: 50, sensors: "both", audio: true });
-    setState(`listening to ${band.name} via ${connectionLabel}`);
-    $("hint").textContent = `${mode === "serial" ? "Connected via USB. " : ""}The band's light is solid blue while the microphone is on.`;
+    await band.configure({ motion: 50, sensors: "both", audio: false });
+    setState(`watching ${band.name} via ${connectionLabel}`);
+    $("hint").textContent = "Movement only. Lower your hand and hold still between hits. The microphone is off.";
     $("disconnect").disabled = false;
     syncConnectButtons();
     log(`Connected to ${band.name} via ${connectionLabel}.`);
@@ -347,10 +326,8 @@ async function connect(mode) {
 async function cleanup() {
   inputGeneration += 1;
   replayPlaying = false;
-  const oldSound = sound;
-  sound = band = null;
+  band = null;
   clearDetectorInput();
-  oldSound?.close?.();
   await reporter.stopAll().catch(() => {});
   $("disconnect").disabled = true;
   syncConnectButtons();
@@ -419,17 +396,10 @@ async function playRecording() {
   if (!navigator.bluetooth && !replay && !pretend) {
     $("hint").textContent = "This browser has no Web Bluetooth. Open this page in Chrome or Edge on a computer.";
   }
-  const started = performance.now();
-  try {
-    classify = await loadClap((text) => { $("model").textContent = `Sound model: ${text}`; });
-    $("model").textContent = `Sound model: ready (loaded in ${((performance.now() - started) / 1000).toFixed(1)} s, runs on this computer)`;
-    setState(replay ? "ready" : "ready: connect the band");
-    startLoop();
-    if (replay) playRecording();
-    else syncConnectButtons();
-  } catch (error) {
-    $("model").textContent = `Sound model failed to load: ${error.message}. Run "npm run setup:detector" once.`;
-    setState("model missing");
-    syncConnectButtons();
-  }
+  ready = true;
+  $("model").textContent = "Movement only · microphone off";
+  setState(replay ? "ready" : "ready: connect the band");
+  startLoop();
+  if (replay) playRecording();
+  else syncConnectButtons();
 })();

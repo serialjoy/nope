@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>Band detector</h1>
-  <p class="lead">Listens through the band, spots a lighter or a can opening, and tells <a href="/">Nope</a>. Use Chrome or Edge.</p>
+  <p class="lead">Move once for a warning. Move again for the charge. <a href="/">Open Nope</a> alongside this page. Use Chrome or Edge.</p>
 
   <div class="card">
     <div class="row">
@@ -76,7 +76,7 @@
       <span class="pill" id="state">starting…</span>
     </div>
     <p class="muted" id="hint">Double-tap the band first (its light blinks blue), then press Connect and pick it from the list.</p>
-    <p class="muted" id="model">Sound model: loading…</p>
+    <p class="muted" id="model">Movement only · microphone off</p>
   </div>
 
   <section class="monitor-layout" aria-label="Live motion monitoring">
@@ -101,13 +101,13 @@
 
     <section class="card decision-card" aria-labelledby="decision-title">
       <div class="card-heading"><h2 id="decision-title">Last decision</h2><span class="muted" id="timing">—</span></div>
-      <p class="decision-title" id="decision-reason">Waiting for audio</p>
+      <p class="decision-title" id="decision-reason">Waiting for wrist movement</p>
       <p class="decision-detail" id="decision-detail">The detector will explain the first blocker it sees.</p>
-      <div class="cooldown-list" aria-label="Lighter state and repeat cooldowns"><span class="cooldown">Lighter state <b id="lighter-state">—</b></span><span class="cooldown">Lighter cooldown <b id="cooldown-lighter">—</b></span><span class="cooldown">Can opening <b id="cooldown-can_opening">—</b></span></div>
+      <div class="cooldown-list" aria-label="Movement state and repeat cooldown"><span class="cooldown">Movement <b id="lighter-state">—</b></span><span class="cooldown">Next hit <b id="cooldown-lighter">—</b></span><span class="cooldown" style="display:none">Can opening <b id="cooldown-can_opening">—</b></span></div>
     </section>
   </section>
 
-  <div class="card">
+  <div class="card" hidden style="display:none">
     <div class="card-heading"><h2>Sound confidence</h2><span class="muted">Listening: <span id="listening">—</span></span></div>
     <div class="meter"><b><span>Lighter</span><span id="p-lighter">–</span></b><div class="bar"><i id="b-lighter"></i></div></div>
     <div class="meter"><b><span>Can opening</span><span id="p-can_opening">–</span></b><div class="bar"><i id="b-can_opening"></i></div></div>
@@ -115,13 +115,13 @@
   </div>
 
   <section class="card policy-card" aria-label="Current detector requirement">
-    <p>Each hit needs a lighter score of 75% + wrist movement on two fresh checks. The signal must clear between hits. Movement alone does not trigger Smoking.</p>
-    <small>The classifier windows overlap, so two checks establish persistence, not independent proof. A 5-second cooldown is also required.</small>
+    <p>First movement → warning. Next movement → card charge.</p>
+    <small>Lower your hand and hold still between movements. Wait at least 5 seconds between hits. Sound is ignored.</small>
   </section>
 
   <section class="card" aria-labelledby="recent-title">
     <div class="card-heading"><h2 id="recent-title">Recent checks</h2><span class="muted">Most recent 12</span></div>
-    <ol id="decision-trace"><li class="muted">Waiting for the first sound check.</li></ol>
+    <ol id="decision-trace"><li class="muted">Waiting for the first movement check.</li></ol>
   </section>
 
   <section class="card" aria-labelledby="detection-title">
@@ -129,7 +129,7 @@
     <ul id="log"><li class="muted">Nothing yet.</li></ul>
   </section>
 
-  <p class="muted">Only lighter becomes a Nope habit (Smoking). Make a Smoking rule in Nope first. The sound never leaves this computer.</p>
+  <p class="muted">Create a Smoking rule in Nope first. This mode uses wrist movement as the trigger; it does not identify smoking.</p>
 </main>
 <script type="module" src="/detector/page.mjs"></script>
 </body>

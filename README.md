@@ -113,7 +113,7 @@ Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, th
 
 ## Band detector in the browser
 
-`public/detector.html` listens through band 58, spots a lighter or a can opening, and reports to this app. It needs Chrome or Edge (Web Bluetooth), on the same computer as this server. Nothing else has to run: the sound model (CLAP, 8-bit, 34 MB) runs in the page and the audio never leaves the computer.
+`public/detector.html` watches band 58's wrist movement and reports to this app. It needs Chrome or Edge on the same computer as this server. The microphone is off and no sound model loads in this mode.
 
 ```sh
 npm run setup:detector   # once: downloads about 90 MB (model, runtime) and copies the Vexo kit's JavaScript
@@ -122,13 +122,13 @@ npm start
 
 After setup, first open <http://127.0.0.1:3000/band-check.html> in Chrome to check the band 58 connection only; it loads no model and cannot create a charge. **Disconnect and close that check tab before connecting the detector:** the band supports one Bluetooth connection at a time. Set up your rule in the main app at <http://127.0.0.1:3000/>, then connect at <http://127.0.0.1:3000/detector.html> and keep both app and detector tabs open.
 
-1. Make a **Smoking** rule in the app. A lighter strike is the evidence of smoking; a can opening has no Nope habit, so it is only shown on the detector page.
+1. Make a fresh **Smoking** rule in the app for a clean test. Wrist movement is the trigger in this mode; it does not identify smoking.
 2. Open <http://127.0.0.1:3000/detector.html>, double-tap the band, press **Connect band** and pick it. Keep this tab open.
    If Bluetooth keeps dropping, plug band 58 into the laptop with a USB data cable and choose **Connect via USB** instead. Pick the band's USB serial port; the kit verifies its band number before starting the detector.
-3. Each distinct detection posts `started` with a unique occurrence ID; rule handling and any test penalty stay with the server, as described above.
+3. Move once for the warning. Lower your hand and hold still, then move again at least 5 seconds after the first hit for the test-card charge. Each hit posts `started` with a unique occurrence ID; the server handles the rule and payment.
 
-For a Smoking event, the lighter must be the top-ranked sound at least 75% **and** the enabled wrist-activity gate must pass. A hit needs two consecutive fresh audio checks, at least 500 ms apart. After a hit, the signal must clear below 40% (or be silent) for two fresh checks before it can create another hit; the 5-second cooldown is a minimum between accepted hits, not a way to rearm a continuous sound. The "wrist moved" box can be switched off on the page. Wrist activity is only corroborating movement—it does not prove a hand-to-mouth action, and movement alone never triggers Smoking.
+Movement uses a 0.6-second window with at least 20 fresh gyro samples and magnitude standard deviation above 25°/s. After a hit, two fresh stillness checks at least 250 ms apart (gyro RMS below 12.5°/s) rearm it. A 5-second minimum separates hits. Continuous movement and missing packets cannot rearm it. The core's original audio mode remains available to other callers; this page explicitly selects movement only.
 
-The live diagnostics show a gyro X/Y/Z trace, latest packet age, movement strength, the current decision, and a plain-language cooldown or confirmation explanation. Historical recording evaluation used the original 50% single-check lighter policy, so it does not validate this stricter policy. The sound model can also show can openings for comparison; bottle caps are not reliable and are left out.
+The live diagnostics show gyro X/Y/Z, packet age, movement strength, stillness rearming, and the remaining cooldown. Historical audio evaluation does not validate this movement-only trigger.
 
 Test pages (no band): `detector.html?pretend=1` uses the kit's simulated band; `detector.html?replay=/detector/test/x.wav&motion=/detector/test/x.json` plays a recording (files in `public/detector/test/`, not in git). `test/detector-core.test.mjs` covers the detection and episode logic.

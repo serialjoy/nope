@@ -250,6 +250,90 @@ test("resetInput ignores a classifier result that belongs to removed input", asy
   assert.equal(detector.diagnostics().gates.lighter.armed, true);
 });
 
+function motionOnlySetup() {
+  const now = { t: 1_000_000 };
+  const events = [];
+  let classifierCalls = 0;
+  const detector = new Detector({
+    classify: async () => { classifierCalls += 1; return { lighter: 1, can_opening: 0 }; },
+    onEvent: (event) => events.push(event),
+    now: () => now.t,
+    options: { motionOnly: true },
+  });
+  const samples = (gx, count = 20, stepMs = 20) => {
+    for (let i = 0; i < count; i++) {
+      now.t += stepMs;
+      detector.feedMotion(typeof gx === "function" ? gx(i) : gx, 0, 0);
+    }
+  };
+  const active = () => samples((i) => (i % 2 ? 300 : 20));
+  const constantHigh = () => samples(100);
+  const still = () => samples(1);
+  return { detector, now, events, active, constantHigh, still, classifierCalls: () => classifierCalls };
+}
+
+test("motionOnly detects fresh movement without audio or a classifier, then ignores continuous and stale motion", async () => {
+  const s = motionOnlySetup();
+  s.active();
+  const first = await s.detector.step();
+  assert.deepEqual(
+    { kind: first.kind, source: first.source, confidence: first.confidence, motion_active: first.motion_active },
+    { kind: "lighter", source: "motion", confidence: 1, motion_active: true },
+  );
+  assert.equal(s.classifierCalls(), 0);
+  assert.equal(s.detector.diagnostics().mode, "motion_only");
+  assert.equal(s.detector.diagnostics().gates.lighter.confirmationRequired, 1);
+
+  s.now.t += 6_000; s.active();
+  assert.equal(await s.detector.step(), null, "continuous movement remains latched beyond cooldown");
+  assert.equal(s.detector.diagnostics().decision.reason, "awaiting_clear");
+  assert.equal(s.events.length, 1);
+
+  s.detector.resetInput();
+  assert.equal(s.detector.diagnostics().gates.lighter.armed, false, "reset preserves a disarmed latch");
+  s.active();
+  assert.equal(await s.detector.step(), null, "reset cannot turn continued movement into a hit");
+  s.now.t += 700;
+  assert.equal(await s.detector.step(), null, "stale motion cannot rearm");
+  assert.equal(s.detector.diagnostics().decision.reason, "waiting_for_motion");
+  s.constantHigh();
+  assert.equal(await s.detector.step(), null, "high constant-magnitude motion is not stillness");
+  assert.equal(s.detector.diagnostics().gates.lighter.clearCount, 0);
+
+  s.now.t += 700; s.still();
+  assert.equal(await s.detector.step(), null);
+  assert.equal(s.detector.diagnostics().gates.lighter.clearCount, 1);
+  s.still();
+  assert.equal(await s.detector.step(), null);
+  assert.equal(s.detector.diagnostics().gates.lighter.armed, true, "two fresh still checks rearm");
+});
+
+test("motionOnly preserves the five-second cooldown across rearm and input reset", async () => {
+  const s = motionOnlySetup();
+  s.active();
+  assert.equal((await s.detector.step()).id, 1);
+  const firstAt = s.now.t;
+
+  s.now.t += 700; s.still();
+  await s.detector.step();
+  s.still();
+  await s.detector.step();
+  assert.equal(s.detector.diagnostics().gates.lighter.armed, true);
+
+  s.active();
+  assert.equal(await s.detector.step(), null, "movement before five seconds cannot emit a second hit");
+  assert.equal(s.detector.diagnostics().decision.reason, "cooldown");
+  s.detector.resetInput();
+  assert.equal(s.detector.diagnostics().gates.lighter.armed, true, "reset preserves rearmed latch state");
+  s.active();
+  assert.equal(await s.detector.step(), null, "reset cannot bypass cooldown");
+
+  s.now.t = firstAt + 5_100;
+  s.active();
+  assert.equal((await s.detector.step()).id, 2);
+  assert.equal(s.events.length, 2);
+});
+
 function fakeNope(rules) {
   const sent = [];
   const fetchImpl = async (url, init = {}) => {

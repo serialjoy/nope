@@ -15,6 +15,9 @@ const LIGHTER_CONFIRMATION_REQUIRED = 2;
 const LIGHTER_CLEAR_REQUIRED = 2;
 const LIGHTER_CHECK_GAP_MS = 500;
 const LIGHTER_RESET_THRESHOLD = 0.4;
+const MOTION_ONLY_WINDOW_MS = 600;
+const MOTION_ONLY_CLEAR_RMS = 12.5;
+const MOTION_ONLY_CLEAR_GAP_MS = 250;
 
 export const DEFAULTS = Object.freeze({
   threshold: { can_opening: 0.5, lighter: 0.75 }, // classifier probability needed to fire
@@ -23,6 +26,7 @@ export const DEFAULTS = Object.freeze({
   motionGyroStd: 25,                             // deg/s: below this the wrist counts as still
   silenceLevel: 0.01,                            // peak below this: skip the model
   requireMotion: true,
+  motionOnly: false,
 });
 
 /** Rolling buffer of the newest `size` audio samples. */
@@ -67,6 +71,8 @@ export class Detector {
     this.motion = [];                            // {t, v}: gyro magnitude
     this.motionHistory = [];                     // raw {t, gx, gy, gz}, for the monitor only
     this.latestMotion = null;
+    this.motionRevision = 0;
+    this.lastCheckedMotionRevision = null;
     this.audioRevision = 0;
     this.lastCheckedAudioRevision = null;
     this.inputGeneration = 0;
@@ -82,6 +88,7 @@ export class Detector {
       clearCount: 0,
       lastClearAt: null,
     };
+    this.motionClear = { count: 0, lastAt: null };
     this.#recordDecision("warming_up", { at: this.now(), audioPeak: 0, motion: this.#motionMetrics(this.now()) });
   }
 
@@ -94,6 +101,7 @@ export class Detector {
     const t = this.now();
     const raw = { t, gx, gy, gz };
     this.latestMotion = raw;
+    this.motionRevision += 1;
     this.motion.push({ t, v: Math.hypot(gx, gy, gz) });
     this.motionHistory.push(raw);
     const keep = t - this.options.motionLookbackS * 1000;
@@ -111,6 +119,7 @@ export class Detector {
 
   /** Look at the last window once. Returns the detection event, or null. Call about once a second. */
   async step() {
+    if (this.options.motionOnly) return this.#stepMotionOnly();
     const inputGeneration = this.inputGeneration;
     const checkAt = this.now();
     const audioMetrics = this.#audioMetrics();
@@ -230,9 +239,11 @@ export class Detector {
     const historyStart = at - MOTION_HISTORY_MS;
     const latest = this.latestMotion;
     return {
+      mode: this.options.motionOnly ? "motion_only" : "audio",
       motion: {
         active: motion.active,
         std: motion.std,
+        rms: motion.rms,
         threshold: this.options.motionGyroStd,
         sampleCount: motion.sampleCount,
         minimumSamples: MIN_MOTION_SAMPLES,
@@ -253,12 +264,13 @@ export class Detector {
       cooldowns: Object.fromEntries(TARGETS.map((target) => [target, this.#cooldownRemaining(target, at)])),
       gates: {
         lighter: {
-          confirmationCount: this.lighterGate.confirmationCount,
-          confirmationRequired: LIGHTER_CONFIRMATION_REQUIRED,
-          clearCount: this.lighterGate.clearCount,
-          clearRequired: LIGHTER_CLEAR_REQUIRED,
+          confirmationCount: this.options.motionOnly ? 0 : this.lighterGate.confirmationCount,
+          confirmationRequired: this.options.motionOnly ? 1 : LIGHTER_CONFIRMATION_REQUIRED,
+          clearCount: this.options.motionOnly ? this.motionClear.count : this.lighterGate.clearCount,
+          clearRequired: this.options.motionOnly ? 2 : LIGHTER_CLEAR_REQUIRED,
           armed: this.lighterGate.armed,
-          resetThreshold: LIGHTER_RESET_THRESHOLD,
+          resetThreshold: this.options.motionOnly ? MOTION_ONLY_CLEAR_RMS : LIGHTER_RESET_THRESHOLD,
+          motionWindowSeconds: this.options.motionOnly ? MOTION_ONLY_WINDOW_MS / 1000 : null,
         },
       },
     };
@@ -272,22 +284,88 @@ export class Detector {
     this.motion.length = 0;
     this.motionHistory.length = 0;
     this.latestMotion = null;
+    this.motionRevision = 0;
+    this.lastCheckedMotionRevision = null;
     this.lastCheckedAudioRevision = null;
     this.#resetLighterCounters();
+    this.#resetMotionClear();
     this.status = { ...this.status, scores: {}, motionActive: false, silent: true };
     const at = this.now();
     this.#recordDecision("warming_up", { at, audioPeak: 0, motion: this.#motionMetrics(at) });
   }
 
-  #motionMetrics(at) {
-    const keep = at - this.options.motionLookbackS * 1000;
+  #stepMotionOnly() {
+    const at = this.now();
+    const motion = this.#motionMetrics(at, MOTION_ONLY_WINDOW_MS);
+    const details = {
+      at,
+      target: "lighter",
+      topLabel: null,
+      topScore: null,
+      targetScore: null,
+      threshold: this.options.motionGyroStd,
+      audioPeak: 0,
+      motion,
+    };
+    this.status = { ...this.status, motionActive: motion.active };
+    if (this.lastCheckedMotionRevision === this.motionRevision) {
+      if (!this.lighterGate.armed && (motion.sampleCount < MIN_MOTION_SAMPLES || motion.rms >= MOTION_ONLY_CLEAR_RMS)) {
+        this.#resetMotionClear();
+      }
+      this.#recordDecision("waiting_for_motion", details);
+      return null;
+    }
+    this.lastCheckedMotionRevision = this.motionRevision;
+
+    if (!this.lighterGate.armed) {
+      if (motion.sampleCount < MIN_MOTION_SAMPLES || motion.rms >= MOTION_ONLY_CLEAR_RMS) {
+        this.#resetMotionClear();
+      } else if (this.#recordMotionClear(at)) {
+        this.#resetLighterCounters();
+      }
+      if (!this.lighterGate.armed) {
+        this.#recordDecision("awaiting_clear", details);
+        return null;
+      }
+      this.#recordDecision("insufficient_motion", details);
+      return null;
+    }
+
+    if (!motion.active) {
+      this.#recordDecision("insufficient_motion", details);
+      return null;
+    }
+    if (this.#cooldownRemaining("lighter", at) > 0) {
+      this.#recordDecision("cooldown", details);
+      return null;
+    }
+    this.lastFire.set("lighter", at);
+    this.#disarmLighter();
+    this.#resetMotionClear();
+    this.#recordDecision("detected", details);
+    const event = {
+      id: this.events.length + 1,
+      kind: "lighter",
+      source: "motion",
+      confidence: 1,
+      motion_active: true,
+      time: new Date(at).toISOString(),
+    };
+    this.events.push(event);
+    this.onEvent(event);
+    return event;
+  }
+
+  #motionMetrics(at, windowMs = this.options.motionOnly ? MOTION_ONLY_WINDOW_MS : this.options.motionLookbackS * 1000) {
+    const keep = at - windowMs;
     const values = this.motion.filter((sample) => sample.t >= keep && Number.isFinite(sample.v)).map((sample) => sample.v);
     const sampleCount = values.length;
     const mean = sampleCount ? values.reduce((sum, value) => sum + value, 0) / sampleCount : 0;
     const std = sampleCount
       ? Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / sampleCount)
       : 0;
-    return { sampleCount, std, active: sampleCount >= MIN_MOTION_SAMPLES && std > this.options.motionGyroStd };
+    const rms = sampleCount ? Math.sqrt(values.reduce((sum, value) => sum + value ** 2, 0) / sampleCount) : 0;
+    return { sampleCount, std, rms, active: sampleCount >= MIN_MOTION_SAMPLES && std > this.options.motionGyroStd };
   }
 
   #audioMetrics() {
@@ -338,6 +416,21 @@ export class Detector {
   #disarmLighter() {
     this.lighterGate.armed = false;
     this.#resetLighterCounters();
+  }
+
+  #recordMotionClear(at) {
+    if (this.motionClear.count && at - this.motionClear.lastAt < MOTION_ONLY_CLEAR_GAP_MS) return false;
+    this.motionClear.count += 1;
+    this.motionClear.lastAt = at;
+    if (this.motionClear.count < 2) return false;
+    this.lighterGate.armed = true;
+    this.#resetMotionClear();
+    return true;
+  }
+
+  #resetMotionClear() {
+    this.motionClear.count = 0;
+    this.motionClear.lastAt = null;
   }
 
   #resetLighterCounters() {
