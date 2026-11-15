@@ -1,7 +1,7 @@
 // Detector logic with no browser or model code in it, so it runs the same in a page and in tests.
 //
 // audio (16 kHz) + wrist motion -> sound classifier -> motion gate -> detection events
-// -> Nope episodes (started / continued / stopped).
+// -> Nope occurrences (started / stopped).
 //
 // Port of the Python detector the team evaluated (sound-lab/server/detector.py + nope_bridge.py).
 
@@ -119,11 +119,11 @@ export class Detector {
 }
 
 /**
- * Turns detections into Nope's started / continued / stopped episodes.
+ * Turns detections into Nope's started / stopped occurrences.
  *
- * Nope owns the clock and the consequences: after `started` it sends the in-app nudge, and a `continued`
- * more than 60 s later triggers the (test-mode) penalty. So only say `continued` when the behaviour was
- * detected again. A lighter strike is our evidence of smoking; there is no Nope habit for a can opening.
+ * Every debounced detector event is its own occurrence.  Keeping the generated IDs attached to that
+ * detector identity makes a retried delivery harmless, while a later detection can advance Nope's rule.
+ * A lighter strike is our evidence of smoking; there is no Nope habit for a can opening.
  */
 export class NopeReporter {
   constructor({
@@ -137,7 +137,8 @@ export class NopeReporter {
     log = () => {},
   } = {}) {
     Object.assign(this, { baseUrl, bandNumber, map, episodeIdleS, fetchImpl, setTimer, clearTimer, log });
-    this.episodes = new Map();                   // behaviorId -> { rule, timer }
+    this.episodes = new Map();                   // behaviorId -> { rule, timer, occurrenceId }
+    this.occurrences = new Map();                // detector identity -> { occurrenceId, eventId }
     this.counter = 0;
   }
 
@@ -158,21 +159,38 @@ export class NopeReporter {
     return usable.at(-1)?.id ?? null;
   }
 
-  async #send(rule, phase) {
+  #nextId(prefix) {
     this.counter += 1;
-    const eventId = `vexo-web-${Date.now()}-${this.counter}`;
-    const out = await this.#json("/api/events", { bandNumber: this.bandNumber, ruleId: rule, eventId, phase });
+    return `${prefix}-${Date.now()}-${this.counter}`;
+  }
+
+  #occurrenceFor(behavior, event) {
+    const identity = `${behavior}:${event.id ?? "unknown"}:${event.time ?? "unknown"}`;
+    let occurrence = this.occurrences.get(identity);
+    if (!occurrence) {
+      occurrence = {
+        occurrenceId: this.#nextId("vexo-occurrence"),
+        eventId: this.#nextId("vexo-web"),
+      };
+      this.occurrences.set(identity, occurrence);
+    }
+    return occurrence;
+  }
+
+  async #send(rule, phase, { eventId = this.#nextId("vexo-web"), occurrenceId } = {}) {
+    const out = await this.#json("/api/events", {
+      bandNumber: this.bandNumber, ruleId: rule, eventId, phase, ...(occurrenceId ? { occurrenceId } : {}),
+    });
     this.log(`nope: ${phase}`, out.event?.correction ?? null);
     return out;
   }
 
-  /** Call with each detection event. Returns what was sent ("started" | "continued" | null). */
+  /** Call with each detection event. Returns "started" or null. */
   async report(event) {
     const behavior = this.map[event.kind];
     if (!behavior || event.test) return null;
     let episode = this.episodes.get(behavior);
     if (episode) this.clearTimer(episode.timer);
-    let phase = "continued";
     let rule = episode?.rule;
     if (!episode) {
       rule = await this.#ruleFor(behavior);
@@ -180,12 +198,12 @@ export class NopeReporter {
         this.log(`nope: no enabled "${behavior}" rule yet, so nothing was sent. Create one in Nope first.`);
         return null;
       }
-      phase = "started";
     }
-    await this.#send(rule, phase);
+    const occurrence = this.#occurrenceFor(behavior, event);
+    await this.#send(rule, "started", occurrence);
     const timer = this.setTimer(() => this.#end(behavior), this.episodeIdleS * 1000);
-    this.episodes.set(behavior, { rule, timer });
-    return phase;
+    this.episodes.set(behavior, { rule, timer, occurrenceId: occurrence.occurrenceId });
+    return "started";
   }
 
   async #end(behavior) {
@@ -193,7 +211,7 @@ export class NopeReporter {
     if (!episode) return;
     this.episodes.delete(behavior);
     try {
-      await this.#send(episode.rule, "stopped");
+      await this.#send(episode.rule, "stopped", { occurrenceId: episode.occurrenceId });
     } catch (error) {
       this.log(`nope: stop failed (${error.message})`);
     }

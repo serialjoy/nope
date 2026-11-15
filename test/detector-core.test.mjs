@@ -83,7 +83,7 @@ function fakeNope(rules) {
   return { sent, fetchImpl };
 }
 
-test("NopeReporter: started, continued, stopped on idle; wrong kinds and tests are ignored", async () => {
+test("NopeReporter starts each distinct detection, reuses retry identity, and stops the latest occurrence", async () => {
   const nope = fakeNope([
     { id: "old", behaviorId: "smoking", enabled: false, createdAt: "2026-01-01" },
     { id: "r1", behaviorId: "smoking", enabled: true, createdAt: "2026-02-01" },
@@ -95,12 +95,19 @@ test("NopeReporter: started, continued, stopped on idle; wrong kinds and tests a
   });
   assert.equal(await reporter.report({ kind: "can_opening" }), null, "no Nope habit for a can");
   assert.equal(await reporter.report({ kind: "lighter", test: true }), null);
-  assert.equal(await reporter.report({ kind: "lighter" }), "started");
-  assert.equal(await reporter.report({ kind: "lighter" }), "continued");
+  const first = { id: 1, kind: "lighter", time: "2026-11-14T12:00:00.000Z" };
+  assert.equal(await reporter.report(first), "started");
+  assert.equal(await reporter.report(first), "started", "a delivery retry keeps its occurrence identity");
+  assert.equal(await reporter.report({ id: 2, kind: "lighter", time: "2026-11-14T12:00:16.000Z" }), "started");
   await timers.at(-1)();
-  assert.deepEqual(nope.sent.map((e) => [e.phase, e.ruleId, e.bandNumber]), [["started", "r1", 58], ["continued", "r1", 58], ["stopped", "r1", 58]]);
-  assert.equal(new Set(nope.sent.map((e) => e.eventId)).size, 3, "every observation has a fresh eventId");
-  assert.equal(await reporter.report({ kind: "lighter" }), "started", "a new episode after stopped");
+  assert.deepEqual(nope.sent.map((e) => [e.phase, e.ruleId, e.bandNumber]), [
+    ["started", "r1", 58], ["started", "r1", 58], ["started", "r1", 58], ["stopped", "r1", 58],
+  ]);
+  assert.equal(nope.sent[0].occurrenceId, nope.sent[1].occurrenceId, "retry uses the original occurrence");
+  assert.equal(nope.sent[0].eventId, nope.sent[1].eventId, "retry uses the original event ID too");
+  assert.notEqual(nope.sent[1].occurrenceId, nope.sent[2].occurrenceId, "a distinct detector event gets a new occurrence");
+  assert.equal(nope.sent[3].occurrenceId, nope.sent[2].occurrenceId, "idle stop closes the latest occurrence");
+  assert.equal(await reporter.report({ id: 3, kind: "lighter" }), "started", "a new occurrence starts after idle");
 });
 
 test("NopeReporter sends nothing when there is no enabled rule for the habit", async () => {
