@@ -204,7 +204,7 @@ function renderHome() {
     ${renderError("classify")}
     <section class="starter-section" aria-labelledby="starter-title">
       <h2 class="section-heading" id="starter-title">Or start with an idea</h2>
-      <div class="starter-grid">${starters.map((starter) => `<button class="starter-card ${starter.tone}" type="button" data-action="starter" data-starter="${starter.id}" aria-label="Use ${escapeHtml(starter.label)} as an editable example" data-testid="starter-${starter.id}"><img class="starter-art" src="/assets/tiles/${starter.id}.jpg" alt="" width="1168" height="880" loading="lazy" decoding="async"><span class="starter-label">${escapeHtml(starter.label)}</span></button>`).join("")}</div>
+      <div class="starter-grid">${starters.map((starter) => `<button class="starter-card ${starter.tone}" type="button" data-action="starter" data-starter="${starter.id}" aria-label="Use ${escapeHtml(starter.label)} as an editable example" data-testid="starter-${starter.id}"><img class="starter-art" src="/assets/tiles/${starter.id}.png" alt="" width="88" height="88" loading="lazy" decoding="async"><span class="starter-label">${escapeHtml(starter.label)}</span></button>`).join("")}</div>
     </section>
   </section>`);
 }
