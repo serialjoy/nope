@@ -13,6 +13,11 @@ let sound = null;
 let loop = null;
 let classify = null;
 let bandNumber = 58;
+let replayPlaying = false;
+// Increment whenever input is removed. A CLAP call can finish after a band
+// disconnects, so its result must not be allowed to report against a new session.
+let inputGeneration = 0;
+let stepGeneration = null;
 
 function setState(text) { $("state").textContent = text; }
 function log(text, cls = "") {
@@ -26,9 +31,23 @@ function log(text, cls = "") {
 }
 
 const reporter = new NopeReporter({ log: (m, extra) => log(extra ? `${m} → ${extra.status ?? ""} stage ${extra.stage ?? ""}` : m) });
+function hasActiveInput() {
+  return Boolean(band) || replayPlaying;
+}
+
+function clearDetectorInput() {
+  detector.ring.data.fill(0);
+  detector.ring.filled = 0;
+  detector.motion.length = 0;
+  detector.status = { ...detector.status, scores: {}, motionActive: false, silent: true };
+  $("timing").textContent = "–";
+  render();
+}
+
 const detector = new Detector({
   classify: (audio) => classify(audio),
   onEvent: (event) => {
+    if (!hasActiveInput() || stepGeneration !== inputGeneration) return;
     const label = event.kind === "lighter" ? "Lighter" : "Can opening";
     log(`${label} detected (${Math.round(event.confidence * 100)}%${event.motion_active ? ", wrist moving" : ""})`, "hit");
     reporter.report(event).catch((error) => log(`Nope: ${error.message}`));
@@ -51,16 +70,20 @@ function render() {
 function startLoop() {
   let busy = false;
   loop = setInterval(async () => {
-    if (busy || !classify) return;
+    if (busy || !classify || !hasActiveInput()) return;
     busy = true;
+    const generation = inputGeneration;
+    stepGeneration = generation;
     const t = performance.now();
     try {
       await detector.step();
+      if (generation !== inputGeneration) return;
       $("timing").textContent = `${Math.round(performance.now() - t)} ms`;
       render();
     } catch (error) {
       log(`Error: ${error.message}`);
     } finally {
+      if (stepGeneration === generation) stepGeneration = null;
       busy = false;
     }
   }, 1000);
@@ -71,10 +94,12 @@ async function connect() {
   setState("connecting…");
   try {
     band = await Band.connect(bandNumber, pretend ? { transport: new SimTransport(bandNumber) } : {});   // must come from the click that called this
+    const connectedBand = band;
     band.on("motion", (m) => detector.feedMotion(m.gx, m.gy, m.gz));
     sound = new BandAudio((samples) => detector.feedAudio(samples));
     band.on("audio", (packet) => sound.push(packet));
     band.on("disconnect", ({ reason }) => {
+      if (band !== connectedBand) return;
       if (reason !== "closed") { setState("band lost"); log(`The band disconnected (${reason}). Double-tap it and connect again.`); }
       cleanup();
     });
@@ -84,6 +109,9 @@ async function connect() {
     $("disconnect").disabled = false;
     log(`Connected to ${band.name}.`);
   } catch (error) {
+    const failedBand = band;
+    await cleanup();
+    if (failedBand) await failedBand.disconnect().catch(() => {});
     setState("not connected");
     log(`Could not connect: ${error.message}`);
     $("connect").disabled = !classify;
@@ -91,9 +119,13 @@ async function connect() {
 }
 
 async function cleanup() {
-  await reporter.stopAll().catch(() => {});
-  sound?.close?.();
+  inputGeneration += 1;
+  replayPlaying = false;
+  const oldSound = sound;
   sound = band = null;
+  clearDetectorInput();
+  oldSound?.close?.();
+  await reporter.stopAll().catch(() => {});
   $("disconnect").disabled = true;
   $("connect").disabled = !classify;
 }
@@ -129,14 +161,23 @@ function parseWav(buffer) {                          // 16-bit PCM -> Float32 at
 async function playRecording() {
   const audio = parseWav(await (await fetch(replay)).arrayBuffer());
   const motion = params.get("motion") ? await (await fetch(params.get("motion"))).json() : [];
+  replayPlaying = true;
+  inputGeneration += 1;
+  const generation = inputGeneration;
   setState("replaying a recording");
   log(`Replaying ${replay} (${(audio.length / SAMPLE_RATE).toFixed(0)} s)`);
   const chunk = SAMPLE_RATE / 10;                    // 100 ms at a time, in real time
   for (let i = 0, step = 0; i * chunk < audio.length; i++, step++) {
+    if (!replayPlaying || generation !== inputGeneration) return;
     detector.feedAudio(audio.subarray(i * chunk, (i + 1) * chunk));
     for (const [gx, gy, gz] of motion.slice(step * 5, step * 5 + 5)) detector.feedMotion(gx, gy, gz);
     await new Promise((r) => setTimeout(r, 100));
   }
+  if (generation !== inputGeneration) return;
+  replayPlaying = false;
+  inputGeneration += 1;
+  clearDetectorInput();
+  await reporter.stopAll().catch(() => {});
   setState("replay finished");
 }
 

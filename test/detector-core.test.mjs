@@ -110,11 +110,63 @@ test("NopeReporter starts each distinct detection, reuses retry identity, and st
   assert.equal(await reporter.report({ id: 3, kind: "lighter" }), "started", "a new occurrence starts after idle");
 });
 
-test("NopeReporter sends nothing when there is no enabled rule for the habit", async () => {
-  const nope = fakeNope([{ id: "x", behaviorId: "vaping", enabled: true }]);
+test("NopeReporter refreshes a changed rule and keeps prior idle cleanup when a delivery fails", async () => {
+  const rules = [{ id: "r1", behaviorId: "smoking", enabled: true, createdAt: "2026-01-01" }];
+  const sent = [];
+  const attempts = [];
+  const timers = [];
+  const cleared = [];
+  let failStarted = false;
+  const reporter = new NopeReporter({
+    fetchImpl: async (url, init = {}) => {
+      if (url === "/api/rules") return { ok: true, json: async () => ({ rules }) };
+      const body = JSON.parse(init.body);
+      attempts.push(body);
+      if (failStarted && body.phase === "started") return { ok: false, status: 409, json: async () => ({}) };
+      sent.push(body);
+      return { ok: true, json: async () => ({ ok: true, event: { correction: { stage: 1, status: "preview" } } }) };
+    },
+    setTimer: (fn) => { timers.push(fn); return timers.length - 1; },
+    clearTimer: (id) => cleared.push(id),
+  });
+
+  await reporter.report({ id: 1, kind: "lighter", time: "2026-11-14T12:00:00.000Z" });
+  rules.splice(0, 1, { id: "r2", behaviorId: "smoking", enabled: true, createdAt: "2026-11-15" });
+  await reporter.report({ id: 2, kind: "lighter", time: "2026-11-14T12:00:16.000Z" });
+  assert.deepEqual(sent.slice(0, 2).map((event) => event.ruleId), ["r1", "r2"], "the replacement rule is used immediately");
+  assert.deepEqual(cleared, [0], "the prior timer clears only after replacement succeeds");
+
+  failStarted = true;
+  await assert.rejects(
+    reporter.report({ id: 3, kind: "lighter", time: "2026-11-14T12:00:32.000Z" }),
+    /HTTP 409/,
+  );
+  assert.equal(attempts.at(-1).ruleId, "r2");
+  assert.deepEqual(cleared, [0], "a failed POST leaves the current idle timer intact");
+  await timers[1]();
+  const stopped = sent.at(-1);
+  assert.equal(stopped.phase, "stopped");
+  assert.equal(stopped.ruleId, "r2");
+  assert.equal(stopped.occurrenceId, sent[1].occurrenceId, "the surviving timer closes the last successful occurrence");
+});
+
+test("NopeReporter clears a cached idle episode when its rule is paused", async () => {
+  const rules = [{ id: "r1", behaviorId: "smoking", enabled: true, createdAt: "2026-01-01" }];
+  const nope = fakeNope(rules);
   const messages = [];
-  const reporter = new NopeReporter({ fetchImpl: nope.fetchImpl, log: (m) => messages.push(m), setTimer: () => 0 });
-  assert.equal(await reporter.report({ kind: "lighter" }), null);
-  assert.equal(nope.sent.length, 0);
-  assert.match(messages[0], /no enabled "smoking" rule/);
+  const timers = [];
+  const cleared = [];
+  const reporter = new NopeReporter({
+    fetchImpl: nope.fetchImpl,
+    log: (m) => messages.push(m),
+    setTimer: (fn) => { timers.push(fn); return timers.length - 1; },
+    clearTimer: (id) => cleared.push(id),
+  });
+  await reporter.report({ id: 1, kind: "lighter", time: "2026-11-14T12:00:00.000Z" });
+  rules[0].enabled = false;
+  assert.equal(await reporter.report({ id: 2, kind: "lighter", time: "2026-11-14T12:00:16.000Z" }), null);
+  assert.deepEqual(cleared, [0]);
+  await timers[0]();
+  assert.equal(nope.sent.length, 1, "a cancelled stale timer must not send stopped against a paused rule");
+  assert.match(messages.at(-1), /no enabled "smoking" rule/);
 });

@@ -216,7 +216,7 @@ function renderHome() {
 
 function matchTag() {
   if (!state.draft.behaviorId) return '<span class="mode-tag waiting">Choose the closest habit</span>';
-  if (state.draft.matchMode === "demo") return '<span class="mode-tag demo">Demo match</span>';
+  if (state.draft.matchMode === "demo") return '<span class="mode-tag demo">Suggested match</span>';
   if (state.draft.matchMode === "gemini") return '<span class="mode-tag ready">Suggested match</span>';
   return '<span class="mode-tag waiting">Your choice</span>';
 }
@@ -260,12 +260,12 @@ function renderStageCards(amount) {
 function renderPaymentStatus() {
   const stripe = stripeStatus();
   if (stripe.mode === "demo") {
-    return '<section class="payment-status demo-payment"><div><strong>Demo penalty · no real money</strong></div></section>';
+    return '<section class="payment-status demo-payment"><div><strong>Card not connected</strong><p>Choose a stake and connect a test card.</p></div></section>';
   }
   if (stripe.connected) {
-    return `<section class="payment-status connected-payment"><div><strong>Stripe test mode · ${escapeHtml(stripe.cardLabel || "test card connected")}</strong></div></section>`;
+    return `<section class="payment-status connected-payment"><div><strong>Stripe test card connected</strong><p>${escapeHtml(stripe.cardLabel || "Your test card is ready for this stake.")}</p></div></section>`;
   }
-  return `<section class="payment-status"><div><strong>Stripe test mode · no real money</strong></div><button class="small-button" type="button" data-action="setup-stripe" data-testid="connect-test-card" ${state.busy ? "disabled" : ""}>Connect test card</button></section>`;
+  return `<section class="payment-status"><div><strong>Card not connected</strong><p>Choose a stake and connect a test card.</p></div><button class="small-button" type="button" data-action="setup-stripe" data-testid="connect-test-card" ${state.busy ? "disabled" : ""}>Connect test card</button></section>`;
 }
 
 function renderRules() {
@@ -419,9 +419,9 @@ function renderModernDetail(rule) {
 
 function detailPaymentLine() {
   const stripe = stripeStatus();
-  if (stripe.mode === "demo") return "Demo penalty · no real money.";
-  if (stripe.connected) return "Stripe test mode · test card connected.";
-  return "Stripe test mode · no test card connected.";
+  if (stripe.mode === "demo") return "Card not connected. Connect a test card to put this stake into action.";
+  if (stripe.connected) return "Stripe test card connected.";
+  return "Card not connected. Connect a test card to put this stake into action.";
 }
 
 function renderLegacyDetail(rule) {
@@ -447,11 +447,11 @@ function interventionEyesMarkup() {
 function chargeResult(correction, amount, detector) {
   const value = [1, 5, 10].includes(correction?.amountDollars) ? correction.amountDollars : amount;
   const detail = nonEmpty(correction?.message);
-  if (!detector) return { title: `That’s $${value}.`, copy: "Demo only. No money moved.", status: "Demo preview · no charge" };
-  if (correction?.status === "succeeded") return { title: `That’s $${value}.`, copy: "Your test card was charged. Next time starts with a nudge.", status: "Payment confirmed" };
-  if (correction?.status === "demo") return { title: `That’s $${value}.`, copy: "Demo only. No money moved.", status: "Demo result · no money moved" };
+  if (!detector) return { title: `That’s $${value}.`, copy: "Your stake, set by you. A repeat detection puts it into action.", status: "Your commitment" };
+  if (correction?.status === "succeeded") return { title: `That’s $${value}.`, copy: "You set the rule. We kept our word.", status: "Payment confirmed", detail: "Test card charged · Next time starts with a nudge." };
+  if (correction?.status === "demo") return { title: `Your stake: $${value}.`, copy: "Connect a card to put this stake into action.", status: "Card not connected" };
   if (correction?.status === "pending") return { title: "Payment pending.", copy: detail || "We are still waiting to confirm this payment. No charge is confirmed yet.", status: "Not confirmed" };
-  if (correction?.status === "not_connected") return { title: "No charge.", copy: detail || "Connect a test card before Nope can use this stake.", status: "No money moved" };
+  if (correction?.status === "not_connected") return { title: `Your stake: $${value}.`, copy: detail || "Connect a card to put this stake into action.", status: "Card not connected" };
   if (correction?.status === "failed") return { title: "No charge.", copy: detail || "The test-card payment did not go through.", status: "Not confirmed" };
   return { title: "Payment pending.", copy: detail || "We are waiting to confirm a payment result. No charge is confirmed yet.", status: "Not confirmed" };
 }
@@ -466,7 +466,7 @@ function renderIntervention() {
   const busy = state.busy === "detector-stop";
   return `<section class="intervention-shell nudge-shell" aria-labelledby="intervention-title" data-testid="preview-panel"><div class="intervention-page">
     ${interventionEyesMarkup()}
-    <p class="intervention-kicker">${detector ? "Quick check-in" : "Demo preview · no charge"}</p>
+    <p class="intervention-kicker">Quick check-in</p>
     <h1 class="intervention-title" id="intervention-title" tabindex="-1">Caught a loop?</h1>
     <p class="intervention-copy">Take a breath. You can choose again.</p>
     <p class="intervention-status">${escapeHtml(titleForRule(rule))} · $${ruleAmount(rule)} stake</p>
@@ -481,10 +481,10 @@ function renderChargeIntervention(rule, preview) {
   const result = chargeResult(preview.correction, amount, detector);
   return `<section class="intervention-shell charge-shell result-shell" aria-labelledby="intervention-title" data-testid="preview-panel"><div class="intervention-page">
     ${interventionEyesMarkup()}
-    <p class="intervention-kicker">${detector ? "Nope" : "Demo preview · no charge"}</p>
+    <p class="intervention-kicker">Nope</p>
     <h1 class="intervention-title" id="intervention-title" tabindex="-1">${escapeHtml(result.title)}</h1>
     <p class="intervention-copy">${escapeHtml(result.copy)}</p>
-    <p class="intervention-status">$${amount} stake · ${escapeHtml(result.status)}</p>
+    <p class="intervention-status">${escapeHtml(result.status)}</p>${result.detail ? `<p class="intervention-status">${escapeHtml(result.detail)}</p>` : ""}
     <div class="intervention-actions"><button class="wide-action" type="button" data-action="close-intervention">Back to my rules</button></div>
     ${renderError("preview")}
   </div></section>`;
@@ -494,10 +494,10 @@ function renderInterventionClosure(preview) {
   const detector = preview.mode === "detector";
   const falseAlarm = preview.status === "dismissed";
   const title = falseAlarm ? "False alarm cleared." : "Good call.";
-  const copy = detector ? falseAlarm ? "This alert is cleared. No stake was applied." : "This one is closed. Next time, your stake." : falseAlarm ? "The preview is cleared. No money moved." : "The preview is complete. No money moved.";
+  const copy = detector ? falseAlarm ? "This alert is cleared. No stake was applied." : "This one is closed. Next time, your stake." : falseAlarm ? "This practice check-in is cleared. Your commitment stays with you." : "This practice check-in is complete. Your commitment stays with you.";
   return `<section class="intervention-shell result-shell" aria-labelledby="intervention-title" data-testid="preview-panel"><div class="intervention-page">
     ${interventionEyesMarkup()}
-    <p class="intervention-kicker">${detector ? "Nope" : "Demo preview · no charge"}</p>
+    <p class="intervention-kicker">Nope</p>
     <h1 class="intervention-title" id="intervention-title" tabindex="-1">${title}</h1>
     <p class="intervention-copy">${copy}</p>
     <div class="intervention-actions"><button class="wide-action" type="button" data-action="close-intervention">Back to my rules</button></div>
@@ -506,13 +506,24 @@ function renderInterventionClosure(preview) {
 }
 
 function renderActivity() {
-  return shell(`<section aria-labelledby="activity-title">${screenTop("home")}<div class="activity-header"><h1 class="screen-title" id="activity-title">Activity</h1><p class="screen-copy">Your local previews and detector updates, clearly labeled.</p></div>${state.activity.length ? `<div class="activity-list">${state.activity.map(renderActivityItem).join("")}</div>` : `<div class="empty-state"><span class="empty-icon">${icon("activity")}</span><h2>Nothing to show yet</h2><p>Try a local preview or wait for a detector update. We will say which one it was.</p></div>`}</section>`);
+  return shell(`<section aria-labelledby="activity-title">${screenTop("home")}<div class="activity-header"><h1 class="screen-title" id="activity-title">Your check-ins and commitments.</h1><p class="screen-copy">Practice check-ins and updates from your band live here.</p></div>${state.activity.length ? `<div class="activity-list">${state.activity.map(renderActivityItem).join("")}</div>` : `<div class="empty-state"><span class="empty-icon">${icon("activity")}</span><h2>No check-ins yet</h2><p>Try a practice check-in or wait for an update from your band.</p></div>`}</section>`);
+}
+
+function activityTextForDisplay(item) {
+  const text = nonEmpty(item?.text);
+  const normalized = text.toLowerCase();
+  if (item?.source === "preview") {
+    if (/simulat|penalty|stake screen|charge screen/.test(normalized)) return "Viewed the stake screen";
+    if (/demo|local preview|preview started|started (?:a )?preview/.test(normalized)) return "Tried a check-in";
+  }
+  if (item?.source === "detector" && /demo|simulat|local preview/.test(normalized)) return "Received an update from your band";
+  return text || "Check-in";
 }
 
 function renderActivityItem(item) {
-  const source = item.source === "detector" ? "Detector" : "Preview";
+  const source = item.source === "detector" ? "Band" : "Practice";
   const rule = ruleById(item.ruleId);
-  return `<article class="activity-item"><span class="icon-disc">${icon(item.source === "detector" ? "activity" : "phone")}</span><div><div class="activity-top"><h2>${escapeHtml(item.text || "Rule activity")}</h2><span class="activity-source ${item.source === "detector" ? "detector" : "preview"}">${source}</span></div><p>${escapeHtml(rule ? titleForRule(rule) : "A saved rule")} · ${escapeHtml(formatDate(item.at))}</p></div></article>`;
+  return `<article class="activity-item"><span class="icon-disc">${icon(item.source === "detector" ? "activity" : "phone")}</span><div><div class="activity-top"><h2>${escapeHtml(activityTextForDisplay(item))}</h2><span class="activity-source ${item.source === "detector" ? "detector" : "preview"}">${source}</span></div><p>${escapeHtml(rule ? titleForRule(rule) : "A saved rule")} · ${escapeHtml(formatDate(item.at))}</p></div></article>`;
 }
 
 function renderError(context) {
@@ -543,10 +554,10 @@ function updateHelpCopy() {
   }
   if (payment) {
     const stripe = stripeStatus();
-    const match = state.config?.aiMode === "gemini" ? "A suggested match picks a rule category; it does not confirm detector availability." : "Demo matching can suggest a rule category; it does not confirm detector availability.";
+    const match = "A suggested match picks a rule category. The first band check-in opens a nudge; the next one can put your stake into action.";
     payment.textContent = stripe.mode === "test"
-      ? `${match} Stripe is in test mode${stripe.connected ? " with a connected test card" : "; connect a test card before any server-managed test charge"}.`
-      : `${match} Demo penalty means no real money moves.`;
+      ? `${match} Stripe is in test mode${stripe.connected ? " with a connected test card" : "; connect a test card before a stake can be used"}.`
+      : `${match} Connect a test card to put your stake into action.`;
   }
 }
 
@@ -558,7 +569,7 @@ function readActivity() {
 }
 
 function addActivity(entry) {
-  const item = { id: entry.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, source: entry.source === "detector" ? "detector" : "preview", ruleId: entry.ruleId || "", text: nonEmpty(entry.text) || "Rule activity", at: entry.at || new Date().toISOString() };
+  const item = { id: entry.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, source: entry.source === "detector" ? "detector" : "preview", ruleId: entry.ruleId || "", text: nonEmpty(entry.text) || "Check-in", at: entry.at || new Date().toISOString() };
   state.activity = [item, ...state.activity].slice(0, 80);
   try { localStorage.setItem(activityStorageKey, JSON.stringify(state.activity)); } catch { /* local activity is optional */ }
 }
@@ -892,7 +903,7 @@ function beginPreview(id) {
   state.selectedRuleId = rule.id; state.route = "intervention"; state.deleteRuleId = null;
   state.preview = { ruleId: rule.id, mode: "preview", status: "active", stage: 1, correction: { stage: 1, status: "preview" }, warningArmed: false };
   state.flash = "";
-  addActivity({ source: "preview", ruleId: rule.id, text: "Started a local preview" });
+  addActivity({ source: "preview", ruleId: rule.id, text: "Tried a check-in" });
   render();
 }
 
@@ -900,7 +911,7 @@ function advancePreview() {
   const preview = state.preview;
   if (!preview || preview.mode !== "preview" || preview.stage !== 1) return;
   preview.stage = 2; preview.correction = { stage: 2, status: "preview" };
-  addActivity({ source: "preview", ruleId: preview.ruleId, text: "Simulated the test-card penalty" });
+  addActivity({ source: "preview", ruleId: preview.ruleId, text: "Viewed the stake screen" });
   render();
 }
 
@@ -909,11 +920,11 @@ async function stopPreview() {
   if (!preview) return;
   if (preview.mode !== "detector") {
     preview.status = "stopped";
-    addActivity({ source: "preview", ruleId: preview.ruleId, text: "Marked the moment as stopped" });
+    addActivity({ source: "preview", ruleId: preview.ruleId, text: "Finished a practice check-in" });
     render();
     return;
   }
-  await endDetectorPreview("Stopped", "stopped");
+  await endDetectorPreview("Finished a band check-in", "stopped");
 }
 
 async function dismissPreview() {
@@ -921,11 +932,11 @@ async function dismissPreview() {
   if (!preview) return;
   if (preview.mode !== "detector") {
     preview.status = "dismissed";
-    addActivity({ source: "preview", ruleId: preview.ruleId, text: "Chose not this time" });
+    addActivity({ source: "preview", ruleId: preview.ruleId, text: "Cleared a practice check-in" });
     render();
     return;
   }
-  await endDetectorPreview("Marked a false alarm", "false_alarm");
+  await endDetectorPreview("Cleared a band check-in", "false_alarm");
 }
 
 async function endDetectorPreview(activityText, reason) {
@@ -1086,28 +1097,28 @@ function handleDetection(event) {
     if (stage === 1 && episodeId && (acknowledgedEpisode || sameEpisode && current.status !== "active")) return;
     state.preview = { ruleId: rule.id, mode: "detector", status: "active", stage, correction: correction || { stage: 1, status: "preview" }, episodeId, warningArmed: Boolean(correction?.warningArmed) };
     state.route = "intervention";
-    addActivity({ source: "detector", ruleId: rule.id, text: stage === 2 ? "Detector reported a stake result" : "Detector started a rule session", at: occurredAt });
+    addActivity({ source: "detector", ruleId: rule.id, text: stage === 2 ? "Your stake result arrived" : "Band sent a check-in", at: occurredAt });
   } else if (event.phase === "continued") {
     if (stage !== 2) {
       if (!sameEpisode || current.status !== "active" || current.stage === 2) return;
       current.correction = correction || current.correction;
       current.warningArmed = typeof correction?.warningArmed === "boolean" ? correction.warningArmed : current.warningArmed;
-      addActivity({ source: "detector", ruleId: rule.id, text: "Detector confirmed it was still happening", at: occurredAt });
+      addActivity({ source: "detector", ruleId: rule.id, text: "Band noticed the pattern again", at: occurredAt });
     } else {
       const changedResult = !sameEpisode || current.stage !== 2 || current.correction?.status !== correction?.status;
       state.preview = { ...(sameEpisode ? current : {}), ruleId: rule.id, mode: "detector", status: "active", stage: 2, correction: correction || { stage: 2, status: "pending" }, episodeId: episodeId || current?.episodeId || "", warningArmed: Boolean(correction?.warningArmed) };
       if (changedResult || state.route === "intervention") state.route = "intervention";
-      addActivity({ source: "detector", ruleId: rule.id, text: "Detector reported a stake result", at: occurredAt });
+      addActivity({ source: "detector", ruleId: rule.id, text: "Your stake result arrived", at: occurredAt });
     }
   } else if (event.phase === "stopped") {
     if (sameEpisode) {
       current.status = "stopped";
       current.warningArmed = typeof correction?.warningArmed === "boolean" ? correction.warningArmed : current.warningArmed;
     }
-    addActivity({ source: "detector", ruleId: rule.id, text: "Detector marked the moment as stopped", at: occurredAt });
+    addActivity({ source: "detector", ruleId: rule.id, text: "Band closed the check-in", at: occurredAt });
   } else return;
   state.inboundRuleId = state.route === "intervention" ? null : rule.id;
-  state.flash = state.route === "intervention" ? "" : "A detector update arrived.";
+  state.flash = state.route === "intervention" ? "" : "A band check-in arrived.";
   render();
 }
 

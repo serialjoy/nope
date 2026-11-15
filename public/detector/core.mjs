@@ -189,26 +189,30 @@ export class NopeReporter {
   async report(event) {
     const behavior = this.map[event.kind];
     if (!behavior || event.test) return null;
-    let episode = this.episodes.get(behavior);
-    if (episode) this.clearTimer(episode.timer);
-    let rule = episode?.rule;
-    if (!episode) {
-      rule = await this.#ruleFor(behavior);
-      if (!rule) {
-        this.log(`nope: no enabled "${behavior}" rule yet, so nothing was sent. Create one in Nope first.`);
-        return null;
+    const prior = this.episodes.get(behavior);
+    const rule = await this.#ruleFor(behavior);
+    if (!rule) {
+      // A paused/deleted rule must not leave an old timer able to report against it.
+      if (this.episodes.get(behavior) === prior && prior) {
+        this.clearTimer(prior.timer);
+        this.episodes.delete(behavior);
       }
+      this.log(`nope: no enabled "${behavior}" rule yet, so nothing was sent. Create one in Nope first.`);
+      return null;
     }
     const occurrence = this.#occurrenceFor(behavior, event);
     await this.#send(rule, "started", occurrence);
-    const timer = this.setTimer(() => this.#end(behavior), this.episodeIdleS * 1000);
-    this.episodes.set(behavior, { rule, timer, occurrenceId: occurrence.occurrenceId });
+    const next = { rule, timer: null, occurrenceId: occurrence.occurrenceId };
+    next.timer = this.setTimer(() => this.#end(behavior, next), this.episodeIdleS * 1000);
+    const previous = this.episodes.get(behavior);
+    if (previous) this.clearTimer(previous.timer);
+    this.episodes.set(behavior, next);
     return "started";
   }
 
-  async #end(behavior) {
+  async #end(behavior, expectedEpisode = null) {
     const episode = this.episodes.get(behavior);
-    if (!episode) return;
+    if (!episode || (expectedEpisode && episode !== expectedEpisode)) return;
     this.episodes.delete(behavior);
     try {
       await this.#send(episode.rule, "stopped", { occurrenceId: episode.occurrenceId });

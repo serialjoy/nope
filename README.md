@@ -15,7 +15,7 @@ cd nope
 npm start
 ```
 
-`npm start` loads `.env` from the project root. The app also works without keys in demo mode. The original laptop checkout supports this absolute-path launch:
+`npm start` loads `.env` from the project root. Without keys, built-in matching and screen practice remain available; card payments require a Stripe test key. The original laptop checkout supports this absolute-path launch:
 
 ```sh
 node --env-file-if-exists=/Users/cristian/Sites/Test_repos/pause/.env /Users/cristian/Sites/Test_repos/pause/server.mjs
@@ -27,7 +27,7 @@ Your keys go in your clone's `.env`, ignored by Git. Local rules and payment sta
 
 Set `GEMINI_API_KEY` and a Stripe test-only `STRIPE_SECRET_KEY` (`sk_test_` or `rk_test_` only). `GEMINI_DECISION_MODEL=gemini-decision-1` is optional.
 
-Gemini decisions use the fixed endpoint `https://generativelanguage.googleapis.com/v1beta/decisions` and exactly six categories: Doom-scroll (`scrolling`), Nail biting (`nail_biting`), Vaping (`vaping`), Smoking (`smoking`), Porn (`porn`), and Snacks (`snacking`). Unsupported or low-confidence descriptions open a recording-request handoff instead of creating a rule or penalty; the person can still choose an existing habit if that is a better fit. The former `drinking` category is unsupported and is never reinterpreted as `porn`. With no Gemini key, the app explicitly reports its demo matching; a configured-key failure returns `502`.
+Gemini decisions use the fixed endpoint `https://generativelanguage.googleapis.com/v1beta/decisions` and exactly six categories: Doom-scroll (`scrolling`), Nail biting (`nail_biting`), Vaping (`vaping`), Smoking (`smoking`), Porn (`porn`), and Snacks (`snacking`). Unsupported or low-confidence descriptions open a recording-request handoff instead of creating a rule or penalty; the person can still choose an existing habit if that is a better fit. The former `drinking` category is unsupported and is never reinterpreted as `porn`. With no Gemini key, built-in matching provides suggestions; a configured-key failure returns `502`.
 
 ## Recording-request handoff
 
@@ -66,7 +66,7 @@ Recording APIs do not create rules, post detector events, train anything, activa
 
 ## Detector handoff
 
-Band 58 is context only: a friend's separate process performs detection. Nope has no Bluetooth connection or band control. Notifications appear inside the open app; native/background phone push is not implemented.
+Band 58 connects through the separate browser detector described below, or your own detector process can send observations. Notifications appear inside the open main app; native/background phone push is not implemented.
 
 Run the detector alongside this app on the same computer and post to `http://127.0.0.1:3000/api/events`. The server is local-only; another computer cannot reach it at that address. This repository runs independently of the Vexo SDK; keep hardware detection in your separate process and send the events below.
 
