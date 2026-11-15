@@ -125,6 +125,7 @@ npm start
 
 1. Make a **Smoking** rule in the app. A lighter strike is the evidence of smoking; a can opening has no Nope habit, so it is only shown on the detector page.
 2. Open <http://127.0.0.1:3000/detector.html>, double-tap the band, press **Connect band** and pick it. Keep this tab open.
+   If Bluetooth keeps dropping, plug band 58 into the laptop with a USB data cable and choose **Connect via USB** instead. Pick the band's USB serial port; the kit verifies its band number before starting the detector.
 3. Each distinct detection posts `started` with a unique occurrence ID; rule handling and any test penalty stay with the server, as described above.
 
 For a Smoking event, the lighter must be the top-ranked sound at least 75% **and** the enabled wrist-activity gate must pass. A hit needs two consecutive fresh audio checks, at least 500 ms apart. After a hit, the signal must clear below 40% (or be silent) for two fresh checks before it can create another hit; the 5-second cooldown is a minimum between accepted hits, not a way to rearm a continuous sound. The "wrist moved" box can be switched off on the page. Wrist activity is only corroborating movement—it does not prove a hand-to-mouth action, and movement alone never triggers Smoking.

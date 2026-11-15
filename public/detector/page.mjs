@@ -14,6 +14,7 @@ let loop = null;
 let classify = null;
 let bandNumber = 58;
 let replayPlaying = false;
+let connectionPending = false;
 // Increment whenever input is removed. A CLAP call can finish after a band
 // disconnects, so its result must not be allowed to report against a new session.
 let inputGeneration = 0;
@@ -38,6 +39,26 @@ function log(text, cls = "") {
 const reporter = new NopeReporter({ log: (m, extra) => log(extra ? `${m} → ${extra.status ?? ""} stage ${extra.stage ?? ""}` : m) });
 function hasActiveInput() {
   return Boolean(band) || replayPlaying;
+}
+
+function canConnectBluetooth() {
+  return !replay && (pretend || Boolean(navigator.bluetooth));
+}
+
+function canConnectUsb() {
+  return !pretend && !replay && Boolean(navigator.serial);
+}
+
+function syncConnectButtons() {
+  const ready = Boolean(classify);
+  const unavailable = connectionPending || Boolean(band) || replayPlaying;
+  $("connect").disabled = !ready || unavailable || !canConnectBluetooth();
+  $("connect-usb").disabled = !ready || unavailable || !canConnectUsb();
+}
+
+function disableConnectButtons() {
+  $("connect").disabled = true;
+  $("connect-usb").disabled = true;
 }
 
 function clearDetectorInput() {
@@ -283,11 +304,18 @@ function startLoop() {
   }, 1000);
 }
 
-async function connect() {
-  $("connect").disabled = true;
-  setState("connecting…");
+async function connect(mode) {
+  if (mode !== "bluetooth" && mode !== "serial") return;
+  if (connectionPending || hasActiveInput()) return;
+  if (mode === "bluetooth" && !canConnectBluetooth()) return;
+  if (mode === "serial" && !canConnectUsb()) return;
+  const connectionLabel = mode === "serial" ? "USB" : pretend ? "simulated band" : "Bluetooth";
+  connectionPending = true;
+  disableConnectButtons();
+  setState(`connecting via ${connectionLabel}…`);
   try {
-    band = await Band.connect(bandNumber, pretend ? { transport: new SimTransport(bandNumber) } : {});   // must come from the click that called this
+    const transport = pretend ? { transport: new SimTransport(bandNumber) } : mode === "serial" ? { transport: "serial" } : {};
+    band = await Band.connect(bandNumber, transport);   // must come from the click that called this
     const connectedBand = band;
     band.on("motion", (m) => detector.feedMotion(m.gx, m.gy, m.gz));
     sound = new BandAudio((samples) => detector.feedAudio(samples));
@@ -298,17 +326,21 @@ async function connect() {
       cleanup();
     });
     await band.configure({ motion: 50, sensors: "both", audio: true });
-    setState(`listening to ${band.name}`);
-    $("hint").textContent = "The band's light is solid blue while the microphone is on.";
+    setState(`listening to ${band.name} via ${connectionLabel}`);
+    $("hint").textContent = `${mode === "serial" ? "Connected via USB. " : ""}The band's light is solid blue while the microphone is on.`;
     $("disconnect").disabled = false;
-    log(`Connected to ${band.name}.`);
+    syncConnectButtons();
+    log(`Connected to ${band.name} via ${connectionLabel}.`);
   } catch (error) {
     const failedBand = band;
     await cleanup();
     if (failedBand) await failedBand.disconnect().catch(() => {});
     setState("not connected");
     log(`Could not connect: ${error.message}`);
-    $("connect").disabled = !classify;
+    syncConnectButtons();
+  } finally {
+    connectionPending = false;
+    syncConnectButtons();
   }
 }
 
@@ -321,10 +353,11 @@ async function cleanup() {
   oldSound?.close?.();
   await reporter.stopAll().catch(() => {});
   $("disconnect").disabled = true;
-  $("connect").disabled = !classify;
+  syncConnectButtons();
 }
 
-$("connect").addEventListener("click", connect);
+$("connect").addEventListener("click", () => { void connect("bluetooth"); });
+$("connect-usb").addEventListener("click", () => { void connect("serial"); });
 $("disconnect").addEventListener("click", async () => {
   try { await band.configure({ motion: 0, audio: false }); await band.disconnect(); } catch { /* already gone */ }
   setState("disconnected");
@@ -393,9 +426,10 @@ async function playRecording() {
     setState(replay ? "ready" : "ready: connect the band");
     startLoop();
     if (replay) playRecording();
-    else $("connect").disabled = !navigator.bluetooth && !pretend;
+    else syncConnectButtons();
   } catch (error) {
     $("model").textContent = `Sound model failed to load: ${error.message}. Run "npm run setup:detector" once.`;
     setState("model missing");
+    syncConnectButtons();
   }
 })();
