@@ -37,10 +37,12 @@ for (const [url, target] of DOWNLOADS) {
   console.log(`got   ${target}  (${(bytes.length / 1e6).toFixed(1)} MB)`);
 }
 
-// The Vexo kit's browser library, from the sibling folder (git clone of vexo-open-kit next to this app).
-const kit = path.resolve(root, "..", "vexo-open-kit", "js", "src");
+// Prefer the Vexo kit inside this project; retain the original sibling layout as a fallback.
+const projectKit = path.join(root, "vexo-open-kit", "js", "src");
+const siblingKit = path.resolve(root, "..", "vexo-open-kit", "js", "src");
+const kit = (await exists(path.join(projectKit, "index.js"))) ? projectKit : siblingKit;
 if (!(await exists(path.join(kit, "index.js")))) {
-  throw new Error(`Cannot find the Vexo kit at ${kit}. Put the vexo-open-kit folder next to this one.`);
+  throw new Error(`Cannot find the Vexo kit. Checked ${projectKit} and ${siblingKit}. Clone it into this project as vexo-open-kit.`);
 }
 async function copyDir(from, to) {
   await mkdir(to, { recursive: true });

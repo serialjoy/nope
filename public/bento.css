@@ -1,0 +1,715 @@
+/*
+  Nope bento: the "at a glance" section.
+
+  Self-contained and namespaced (.nb-*), so <section class="nb"> can live on any
+  page next to this file and bento.js. It does not load or depend on styles.css.
+
+  The tokens below mirror :root in styles.css (the Side-eye skin). If the app's
+  palette or type changes, change them here too.
+*/
+
+.nb,
+.nb-page {
+  --nb-cream: #fff0d5;
+  --nb-panel: #fff8eb;
+  --nb-forest: #1b4133;
+  --nb-tomato: #f04124;
+  --nb-bubblegum: #f6a0bd;
+  --nb-butter: #ffdc62;
+  --nb-line: #dbcdb2;
+  --nb-muted: #566759;
+  --nb-font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --nb-gap: 12px;
+  --nb-pad: 18px;
+  --nb-radius: 26px;
+}
+
+/* ---------- Preview page chrome (bento.html only) ---------- */
+
+.nb-page {
+  min-width: 320px;
+  margin: 0;
+  color-scheme: light;
+  color: var(--nb-forest);
+  background: var(--nb-cream);
+  font-family: var(--nb-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.nb-bar {
+  box-sizing: border-box;
+  display: flex;
+  max-width: 1304px;
+  margin: 0 auto;
+  padding: 22px clamp(16px, 3vw, 32px) 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nb-bar-brand { display: block; line-height: 0; border-radius: 8px; }
+.nb-bar-brand img { display: block; width: 132px; height: auto; }
+
+.nb-bar-open {
+  display: inline-flex;
+  min-height: 45px;
+  padding: 0 20px;
+  align-items: center;
+  border-radius: 999px;
+  color: var(--nb-cream);
+  background: var(--nb-forest);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-decoration: none;
+}
+
+.nb-bar a:focus-visible { outline: 3px solid var(--nb-forest); outline-offset: 3px; }
+
+/* ---------- Section ---------- */
+
+.nb {
+  color-scheme: light;
+  color: var(--nb-forest);
+  background: var(--nb-cream);
+  font-family: var(--nb-font);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.nb *,
+.nb *::before,
+.nb *::after { box-sizing: border-box; }
+
+.nb-wrap {
+  max-width: 1304px;
+  margin: 0 auto;
+  padding: clamp(40px, 6vw, 84px) clamp(16px, 3vw, 32px) clamp(48px, 6vw, 96px);
+}
+
+.nb-head {
+  display: flex;
+  margin-bottom: clamp(22px, 3.2vw, 44px);
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 48px;
+}
+
+.nb-title {
+  margin: 0;
+  font-size: clamp(3rem, 8.2vw, 6.25rem);
+  font-weight: 900;
+  letter-spacing: -.075em;
+  line-height: .92;
+  text-wrap: balance;
+}
+
+.nb-lede {
+  max-width: 27ch;
+  margin: 0 0 .35em;
+  color: var(--nb-muted);
+  font-size: clamp(1.0625rem, 1.5vw, 1.3125rem);
+  line-height: 1.32;
+  text-wrap: pretty;
+}
+
+/* ---------- Grid ---------- */
+
+.nb-grid {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: var(--nb-gap);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "hero hero"
+    "describe describe"
+    "habits habits"
+    "stake stake"
+    "first first"
+    "next reset"
+    "band band"
+    "pause alarm"
+    "teach teach"
+    "preview activity";
+  list-style: none;
+}
+
+.nb-hero { grid-area: hero; }
+.nb-describe { grid-area: describe; }
+.nb-habits { grid-area: habits; }
+.nb-stake { grid-area: stake; }
+.nb-first { grid-area: first; }
+.nb-next { grid-area: next; }
+.nb-reset { grid-area: reset; }
+.nb-band { grid-area: band; }
+.nb-pause { grid-area: pause; }
+.nb-alarm { grid-area: alarm; }
+.nb-teach { grid-area: teach; }
+.nb-preview { grid-area: preview; }
+.nb-activity { grid-area: activity; }
+
+/* ---------- Tile ---------- */
+
+.nb-tile {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 172px;
+  padding: var(--nb-pad);
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  overflow: hidden;
+  border-radius: var(--nb-radius);
+  background: var(--nb-panel);
+  box-shadow: inset 0 0 0 1px var(--nb-line);
+  text-align: center;
+}
+
+.nb-art {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.nb-label {
+  margin: 0;
+  font-size: clamp(1.25rem, 1.62vw, 1.375rem);
+  font-weight: 900;
+  letter-spacing: -.055em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+/* Colour fields, shared by tiles and the habit cards. */
+.nb-butter { color: var(--nb-forest); background: var(--nb-butter); box-shadow: none; }
+.nb-bubblegum { color: var(--nb-forest); background: var(--nb-bubblegum); box-shadow: none; }
+.nb-forest { color: var(--nb-cream); background: var(--nb-forest); box-shadow: none; }
+.nb-tomato { color: var(--nb-cream); background: var(--nb-tomato); box-shadow: none; }
+
+.nb-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.nb :focus-visible { outline: 3px solid var(--nb-forest); outline-offset: 3px; }
+
+/* On a page that also loads styles.css, its bare `svg` rule would stroke the
+   shapes in here. :where() keeps this reset weaker than every class below. */
+:where(.nb) svg { stroke: none; }
+
+/* ---------- Hero: the side-eye ---------- */
+
+.nb-hero {
+  min-height: 340px;
+  padding: clamp(24px, 3.2vw, 40px);
+  justify-content: center;
+  gap: 0;
+}
+
+.nb-eyes {
+  display: block;
+  width: min(62%, 350px);
+  height: auto;
+  overflow: visible;
+}
+
+.nb-eye-white { fill: var(--nb-cream); }
+.nb-eye-dot { fill: var(--nb-forest); }
+.nb-eye { transform-box: fill-box; transform-origin: center; }
+
+/* Resting pose is the locked symbol: pupils pushed to the right edge. */
+.nb-pupil {
+  transform: translate(var(--nb-px, 10px), var(--nb-py, 0px));
+  transition: transform .5s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.nb-ahead .nb-pupil { transform: translate(0, 0); transition: none; }
+.nb-tracking .nb-pupil { transition: transform .1s ease-out; }
+
+.nb-hero-title {
+  margin: clamp(18px, 2.2vw, 28px) 0 0;
+  font-size: clamp(2.5rem, 4.5vw, 3.75rem);
+  font-weight: 900;
+  letter-spacing: -.075em;
+  line-height: .94;
+}
+
+/* Kept at 19px bold or larger: cream on tomato needs "large text" to hold 3:1. */
+.nb-hero-copy {
+  margin: 12px 0 0;
+  font-size: clamp(1.1875rem, 1.5vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+
+.nb-hero-copy span { display: inline-block; }
+
+/* ---------- Your words. Your rule. ---------- */
+
+.nb-input {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  min-height: 54px;
+  padding: 9px 9px 9px 16px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--nb-line);
+  border-radius: 20px;
+  background: var(--nb-cream);
+  font-size: .9375rem;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.nb-input-text { min-width: 0; flex: 1 1 auto; }
+
+.nb-input-send {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--nb-cream);
+  background: var(--nb-tomato);
+}
+
+.nb-input-send svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nb-match {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  margin: 0;
+  padding-left: 4px;
+  align-items: center;
+  gap: 8px;
+  color: var(--nb-muted);
+  font-size: .8125rem;
+  font-weight: 700;
+}
+
+.nb-input-text,
+.nb-match { transition: opacity .2s ease; }
+.nb-swap .nb-input-text,
+.nb-swap .nb-match { opacity: 0; }
+
+.nb-chip {
+  display: inline-flex;
+  min-height: 28px;
+  padding: 5px 11px;
+  align-items: center;
+  border-radius: 999px;
+  color: var(--nb-cream);
+  background: var(--nb-forest);
+  font-size: .8125rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ---------- Six habits ---------- */
+
+.nb-habits { padding: 16px 16px var(--nb-pad); }
+
+.nb-habit-grid {
+  display: grid;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  list-style: none;
+}
+
+.nb-habit {
+  display: flex;
+  min-width: 0;
+  min-height: 132px;
+  padding: 10px 8px 12px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 20px;
+  text-align: left;
+}
+
+.nb-habit img {
+  display: block;
+  width: 100%;
+  height: 0;
+  min-height: 60px;
+  flex: 1 1 0;
+  object-fit: contain;
+  object-position: left center;
+}
+
+/* 18.7px bold is the smallest "large text"; the Smoking card is cream on tomato. */
+.nb-habit span {
+  max-width: 100%;
+  font-size: 1.17rem;
+  font-weight: 900;
+  letter-spacing: -.055em;
+  line-height: 1;
+}
+
+/* ---------- Set your stake ---------- */
+
+.nb-amounts { min-width: 0; margin: 0; padding: 0; border: 0; }
+.nb-amounts-row { display: flex; gap: 9px; }
+.nb-amounts label { position: relative; display: block; }
+
+.nb-amounts input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.nb-amounts span {
+  display: grid;
+  width: clamp(62px, 5.4vw, 72px);
+  height: 60px;
+  place-items: center;
+  border: 1px solid var(--nb-line);
+  border-radius: 20px;
+  background: var(--nb-cream);
+  font-size: 1.625rem;
+  font-weight: 900;
+  letter-spacing: -.06em;
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.nb-amounts label:hover span { border-color: var(--nb-forest); background: var(--nb-butter); }
+
+.nb-amounts input:checked + span {
+  border-color: var(--nb-forest);
+  color: var(--nb-cream);
+  background: var(--nb-forest);
+  box-shadow: inset 0 0 0 2px var(--nb-cream);
+}
+
+.nb-amounts input:focus-visible + span { outline: 3px solid var(--nb-tomato); outline-offset: 3px; }
+
+/* ---------- First time, a nudge ---------- */
+
+.nb-note {
+  display: grid;
+  width: min(100%, 320px);
+  padding: 11px 14px 11px 11px;
+  align-items: center;
+  gap: 11px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  border-radius: 18px;
+  color: var(--nb-forest);
+  background: var(--nb-panel);
+  text-align: left;
+}
+
+.nb-note img { display: block; width: 38px; height: 38px; }
+.nb-note p { margin: 0; font-size: .8125rem; line-height: 1.3; }
+.nb-note span { display: inline-block; }
+
+.nb-note b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 1.0625rem;
+  font-weight: 900;
+  letter-spacing: -.05em;
+  line-height: 1.05;
+}
+
+/* ---------- Next time, your stake / Then it resets ---------- */
+
+.nb-big {
+  display: block;
+  font-size: clamp(3.75rem, 6vw, 5rem);
+  font-weight: 900;
+  letter-spacing: -.075em;
+  line-height: .84;
+}
+
+.nb-loop {
+  width: 54px;
+  height: 54px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- The band ---------- */
+
+.nb-strap {
+  position: relative;
+  display: grid;
+  min-height: 92px;
+  margin: 0 calc(var(--nb-pad) * -1);
+  flex: 1 1 auto;
+  align-self: stretch;
+  place-items: center;
+}
+
+/* The strap itself, running off both edges of the tile, with a stitch line. */
+.nb-strap::before,
+.nb-strap::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.nb-strap::before { height: 46px; background: var(--nb-forest); }
+.nb-strap::after { height: 30px; border-block: 2px dashed rgba(255, 240, 213, .34); }
+
+.nb-strap-disc {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--nb-tomato);
+}
+
+.nb-strap-disc svg { display: block; width: 63%; height: auto; }
+
+/* ---------- Pause anytime ---------- */
+
+.nb-switch {
+  position: relative;
+  display: grid;
+  width: 100%;
+  flex: 1 1 auto;
+  align-content: center;
+  justify-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.nb-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Off is an outlined track with a forest knob, so the paused state still has
+   3:1 against the tile; on is the filled forest track the app uses. */
+.nb-switch-track {
+  position: relative;
+  width: 82px;
+  height: 48px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 2px var(--nb-forest);
+  transition: background-color .16s ease;
+}
+
+.nb-switch-track::after {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--nb-forest);
+  content: "";
+  transition: transform .2s cubic-bezier(.34, 1.4, .64, 1), background-color .16s ease;
+}
+
+.nb-switch input:checked ~ .nb-switch-track { background: var(--nb-forest); }
+.nb-switch input:checked ~ .nb-switch-track::after { background: var(--nb-panel); transform: translateX(34px); }
+.nb-switch input:focus-visible ~ .nb-switch-track { outline: 3px solid var(--nb-tomato); outline-offset: 3px; }
+
+.nb-switch-state { color: var(--nb-muted); font-size: .8125rem; font-weight: 700; line-height: 1.2; }
+.nb-switch-state::after { content: "Paused"; }
+.nb-switch input:checked ~ .nb-switch-state::after { content: "Ready"; }
+
+/* ---------- False alarm ---------- */
+
+.nb-disc {
+  display: grid;
+  width: 66px;
+  height: 66px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--nb-forest);
+  background: var(--nb-bubblegum);
+}
+
+.nb-disc svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nb-disc-gap { stroke: var(--nb-bubblegum); stroke-width: 5.5; }
+.nb-disc-slash { stroke: var(--nb-tomato); stroke-width: 2.4; }
+
+/* ---------- Not on the list? Show Nope ---------- */
+
+.nb-sample {
+  display: flex;
+  width: min(100%, 290px);
+  padding: 9px 9px 9px 15px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 999px;
+  background: var(--nb-panel);
+}
+
+.nb-rec { width: 12px; height: 12px; flex: none; border-radius: 50%; background: var(--nb-tomato); }
+
+.nb-trace {
+  min-width: 0;
+  height: 30px;
+  flex: 1 1 auto;
+  fill: none;
+  stroke: var(--nb-forest);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nb-trace path { vector-effect: non-scaling-stroke; }
+
+/* ---------- Try it first ---------- */
+
+.nb-try {
+  display: inline-flex;
+  min-height: 50px;
+  padding: 0 28px;
+  align-items: center;
+  border-radius: 17px;
+  color: var(--nb-forest);
+  background: var(--nb-butter);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+/* ---------- See what happened ---------- */
+
+/* Dot colours echo the nudge (butter) and stake (bubblegum) tiles. */
+.nb-log { width: 72px; height: auto; fill: var(--nb-cream); }
+.nb-log-nudge { fill: var(--nb-butter); }
+.nb-log-stake { fill: var(--nb-bubblegum); }
+
+/* ---------- Small print ---------- */
+
+.nb-fine {
+  max-width: 70ch;
+  margin: clamp(18px, 2vw, 26px) 2px 0;
+  color: var(--nb-muted);
+  font-size: .8125rem;
+  line-height: 1.45;
+}
+
+/* ---------- Tablet: six columns ---------- */
+
+@media (min-width: 720px) {
+  .nb,
+  .nb-page { --nb-gap: 14px; --nb-pad: 20px; }
+
+  .nb-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-areas:
+      "hero hero hero hero hero hero"
+      "describe describe describe describe pause pause"
+      "first first first next next next"
+      "reset reset band band activity activity"
+      "habits habits habits habits alarm alarm"
+      "habits habits habits habits preview preview"
+      "stake stake stake teach teach teach";
+  }
+
+  .nb-hero { min-height: 400px; }
+  .nb-habit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nb-habit { min-height: 138px; }
+}
+
+/* ---------- Desktop: twelve columns, four fixed rows ---------- */
+
+@media (min-width: 1200px) {
+  .nb,
+  .nb-page { --nb-gap: 16px; --nb-pad: 22px; --nb-radius: 28px; }
+
+  .nb-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(4, clamp(184px, 15vw, 196px));
+    grid-template-areas:
+      "describe describe describe describe first first first next next next reset reset"
+      "pause pause hero hero hero hero hero hero habits habits habits habits"
+      "alarm alarm hero hero hero hero hero hero habits habits habits habits"
+      "band band stake stake stake teach teach teach preview preview activity activity";
+  }
+
+  .nb-tile { min-height: 0; }
+  .nb-hero { min-height: 0; }
+  .nb-habit-grid { gap: 8px; }
+  .nb-habit { min-height: 0; }
+  .nb-label { font-size: clamp(1.1875rem, 1.62vw, 1.375rem); }
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes nb-blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(.08); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nb-hero .nb-eye { animation: nb-blink 6.5s 2.4s infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb *,
+  .nb *::before,
+  .nb *::after { animation: none !important; transition: none !important; }
+}

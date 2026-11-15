@@ -6,22 +6,19 @@ Nope is a local, mobile-friendly habit-support app. Describe a habit, let Gemini
 
 Requires Node 24 or newer. There are no package dependencies. The app is available at <http://127.0.0.1:3000/> and binds only to `127.0.0.1`.
 
-Clone the app, then copy the empty key template only if `.env` is absent:
+For a new laptop with band 58, use Node 24+ and Chrome, then run:
 
 ```sh
 git clone https://github.com/serialjoy/nope.git
 cd nope
+git clone https://github.com/VexoAI-Org/vexo-open-kit.git vexo-open-kit
+git -C vexo-open-kit checkout 1e4291e
 [ -f .env ] || cp .env.example .env
+npm run setup:detector
 npm start
 ```
 
-`npm start` loads `.env` from the project root. Without keys, built-in matching and screen practice remain available; card payments require a Stripe test key. The original laptop checkout supports this absolute-path launch:
-
-```sh
-node --env-file-if-exists=/Users/cristian/Sites/Test_repos/pause/.env /Users/cristian/Sites/Test_repos/pause/server.mjs
-```
-
-Your keys go in your clone's `.env`, ignored by Git. Local rules and payment state are also excluded. Never paste API keys into chat, a browser, or source code.
+`npm start` loads `.env` from the project root. Your clone does not include secrets, rules, or card data: each coworker must enter their own test keys manually and set up their own local test rule and card. `.env` is ignored by Git; never paste API keys into chat, a browser, or source code.
 
 ## Keys and classification
 
@@ -119,9 +116,11 @@ Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, th
 `public/detector.html` listens through band 58, spots a lighter or a can opening, and reports to this app. It needs Chrome or Edge (Web Bluetooth), on the same computer as this server. Nothing else has to run: the sound model (CLAP, 8-bit, 34 MB) runs in the page and the audio never leaves the computer.
 
 ```sh
-npm run setup:detector   # once: downloads about 90 MB (model, runtime) and copies the Vexo kit's JavaScript from ../vexo-open-kit
+npm run setup:detector   # once: downloads about 90 MB (model, runtime) and copies the Vexo kit's JavaScript
 npm start
 ```
+
+After setup, first open <http://127.0.0.1:3000/band-check.html> in Chrome to check the band 58 connection only; it loads no model and cannot create a charge. **Disconnect and close that check tab before connecting the detector:** the band supports one Bluetooth connection at a time. Set up your rule in the main app at <http://127.0.0.1:3000/>, then connect at <http://127.0.0.1:3000/detector.html> and keep both app and detector tabs open.
 
 1. Make a **Smoking** rule in the app. A lighter strike is the evidence of smoking; a can opening has no Nope habit, so it is only shown on the detector page.
 2. Open <http://127.0.0.1:3000/detector.html>, double-tap the band, press **Connect band** and pick it. Keep this tab open.

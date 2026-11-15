@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Band 58 connection check</title>
+  <style>
+    :root { color-scheme: light; --ink:#171717; --muted:#666; --line:#deded8; --paper:#fff; --panel:#f5f5f1; --accent:#ffd84d; --good:#12683d; --bad:#9d261d; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.45 system-ui,sans-serif; }
+    main { width:min(680px,100%); margin:0 auto; padding:24px 16px 48px; }
+    a { color:inherit; }
+    h1 { margin:14px 0 4px; font-size:2rem; line-height:1.1; }
+    h2 { margin:0; font-size:1rem; }
+    p { margin:0; }
+    .lead,.muted { color:var(--muted); }
+    .panel { margin-top:14px; padding:16px; border:1px solid var(--line); border-radius:14px; background:var(--panel); }
+    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    button { appearance:none; border:0; border-radius:999px; padding:10px 15px; background:var(--ink); color:#fff; font:600 .95rem/1 system-ui,sans-serif; cursor:pointer; }
+    button.secondary { border:1px solid var(--ink); background:transparent; color:var(--ink); }
+    button:disabled { cursor:default; opacity:.42; }
+    button:focus-visible,a:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+    #phase { margin-top:12px; font-weight:700; }
+    .phase-good { color:var(--good); } .phase-bad { color:var(--bad); }
+    dl { display:grid; grid-template-columns:minmax(110px,.7fr) minmax(0,1.8fr); gap:7px 12px; margin:14px 0 0; font-variant-numeric:tabular-nums; }
+    dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
+    .motion-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-top:12px; overflow:hidden; border:1px solid var(--line); border-radius:10px; background:var(--line); }
+    .metric { min-width:0; padding:10px; background:var(--paper); }
+    .metric b { display:block; margin-top:2px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .metric span { color:var(--muted); font-size:.8rem; }
+    #log { max-height:240px; margin:10px 0 0; padding:0; overflow:auto; list-style:none; font-size:.9rem; }
+    #log li { padding:7px 0; border-bottom:1px solid var(--line); }
+    #log time { margin-right:7px; color:var(--muted); font-variant-numeric:tabular-nums; }
+    @media (max-width:430px) { main { padding-inline:12px; } .panel { padding:14px; } dl { grid-template-columns:1fr; gap:1px; } dd { margin-bottom:7px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/detector.html">← Back to detector</a>
+    <h1>Band 58 connection check</h1>
+    <p class="lead">A direct connection check only: no model, detector, microphone, light, or payment.</p>
+
+    <section class="panel" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <div class="row" style="margin-top:12px">
+        <button id="connect-bluetooth" type="button">Connect Bluetooth</button>
+        <button id="connect-usb" class="secondary" type="button">Connect USB</button>
+        <button id="disconnect" class="secondary" type="button" disabled>Disconnect</button>
+      </div>
+      <p id="phase" role="status">Ready to connect to band 58.</p>
+      <dl>
+        <dt>Band</dt><dd id="identity">Not connected</dd>
+        <dt>Firmware</dt><dd id="firmware">—</dd>
+        <dt>Transport</dt><dd id="transport">—</dd>
+      </dl>
+    </section>
+
+    <section class="panel" aria-labelledby="motion-title">
+      <div class="row" style="justify-content:space-between">
+        <h2 id="motion-title">Motion only</h2>
+        <button id="start-motion" class="secondary" type="button" disabled>Start motion only</button>
+      </div>
+      <p class="muted" style="margin-top:8px">This starts only the gyroscope/accelerometer stream at 25 Hz. It does not start the microphone or light.</p>
+      <div class="motion-grid">
+        <div class="metric"><span>Packets</span><b id="motion-count">0</b></div>
+        <div class="metric"><span>Last update</span><b id="motion-age">—</b></div>
+        <div class="metric"><span>Gyro X</span><b id="gyro-x">—</b></div>
+        <div class="metric"><span>Gyro Y</span><b id="gyro-y">—</b></div>
+        <div class="metric"><span>Gyro Z</span><b id="gyro-z">—</b></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="log-title">
+      <h2 id="log-title">Connection log</h2>
+      <ul id="log"><li class="muted">No connection attempts yet.</li></ul>
+    </section>
+  </main>
+
+  <script type="module">
+    import { Band } from "/vendor/vexo/index.js";
+
+    const BAND = 58;
+    const $ = (id) => document.getElementById(id);
+    let band = null;
+    let connecting = false;
+    let motionStarted = false;
+    let motionCount = 0;
+    let lastMotion = null;
+    let lastPaint = 0;
+
+    function log(text) {
+      const list = $("log");
+      if (list.firstElementChild?.classList.contains("muted")) list.replaceChildren();
+      const item = document.createElement("li");
+      const time = document.createElement("time");
+      time.textContent = new Date().toLocaleTimeString();
+      item.append(time, document.createTextNode(text));
+      list.prepend(item);
+    }
+
+    function setPhase(text, tone = "") {
+      const node = $("phase");
+      node.textContent = text;
+      node.className = tone ? `phase-${tone}` : "";
+    }
+
+    function resetMotion() {
+      motionStarted = false;
+      motionCount = 0;
+      lastMotion = null;
+      lastPaint = 0;
+      $("motion-count").textContent = "0";
+      $("motion-age").textContent = "—";
+      $("gyro-x").textContent = "—";
+      $("gyro-y").textContent = "—";
+      $("gyro-z").textContent = "—";
+    }
+
+    function renderMotion() {
+      $("motion-count").textContent = String(motionCount);
+      if (!lastMotion) return;
+      $("motion-age").textContent = "just now";
+      $("gyro-x").textContent = `${lastMotion.gx.toFixed(1)} °/s`;
+      $("gyro-y").textContent = `${lastMotion.gy.toFixed(1)} °/s`;
+      $("gyro-z").textContent = `${lastMotion.gz.toFixed(1)} °/s`;
+    }
+
+    function syncButtons() {
+      const unavailable = connecting || Boolean(band);
+      $("connect-bluetooth").disabled = unavailable || !navigator.bluetooth;
+      $("connect-usb").disabled = unavailable || !navigator.serial;
+      $("disconnect").disabled = !band;
+      $("start-motion").disabled = !band || motionStarted;
+    }
+
+    function identity() {
+      $("identity").textContent = `${band.name} · number ${band.number}`;
+      $("firmware").textContent = band.info?.firmware || "Not reported";
+      $("transport").textContent = band.transportKind || "Not reported";
+    }
+
+    function clearConnection() {
+      band = null;
+      resetMotion();
+      $("identity").textContent = "Not connected";
+      $("firmware").textContent = "—";
+      $("transport").textContent = "—";
+      syncButtons();
+    }
+
+    function errorText(error) {
+      return `[${error?.code || "error"}] ${error?.message || String(error)}`;
+    }
+
+    async function connectBluetooth() {
+      await connect("Bluetooth", () => Band.connect(BAND));
+    }
+
+    async function connectUsb() {
+      await connect("USB", () => Band.connect(BAND, { transport: "serial" }));
+    }
+
+    async function connect(kind, open) {
+      if (connecting || band) return;
+      connecting = true;
+      syncButtons();
+      setPhase(`Connecting via ${kind}…`);
+      let candidate = null;
+      try {
+        candidate = await open();
+        band = candidate;
+        band.on("disconnect", ({ reason }) => {
+          if (band !== candidate) return;
+          log(`Disconnected: ${reason || "unknown reason"}.`);
+          setPhase(`Disconnected (${reason || "unknown reason"}).`, "bad");
+          clearConnection();
+        });
+        identity();
+        setPhase(`Connected to ${band.name} via ${kind}.`, "good");
+        log(`Connected: ${band.name}, number ${band.number}, firmware ${band.info?.firmware || "not reported"}, ${band.transportKind}.`);
+      } catch (error) {
+        log(`Connection error ${errorText(error)}`);
+        setPhase(`Connection failed: ${error?.code || "error"}.`, "bad");
+        if (candidate) await candidate.disconnect().catch(() => {});
+        clearConnection();
+      } finally {
+        connecting = false;
+        syncButtons();
+      }
+    }
+
+    async function disconnect() {
+      const current = band;
+      if (!current) return;
+      setPhase("Disconnecting…");
+      try {
+        await current.disconnect();
+      } catch (error) {
+        log(`Disconnect error ${errorText(error)}`);
+      } finally {
+        if (band === current) {
+          log("Disconnected: closed.");
+          clearConnection();
+        }
+        setPhase("Disconnected.");
+        syncButtons();
+      }
+    }
+
+    async function startMotion() {
+      const current = band;
+      if (!current || motionStarted) return;
+      $("start-motion").disabled = true;
+      try {
+        await current.configure({ motion: 25, sensors: "both" });
+        if (band !== current) return;
+        motionStarted = true;
+        current.on("motion", (sample) => {
+          if (band !== current) return;
+          motionCount += 1;
+          lastMotion = sample;
+          const now = performance.now();
+          if (now - lastPaint >= 200) {
+            lastPaint = now;
+            renderMotion();
+          }
+        });
+        renderMotion();
+        setPhase(`Connected to ${current.name}; motion only is running.`, "good");
+        log("Motion-only stream started at 25 Hz.");
+      } catch (error) {
+        log(`Motion error ${errorText(error)}`);
+        setPhase(`Motion did not start: ${error?.code || "error"}.`, "bad");
+      } finally {
+        syncButtons();
+      }
+    }
+
+    $("connect-bluetooth").addEventListener("click", () => { void connectBluetooth(); });
+    $("connect-usb").addEventListener("click", () => { void connectUsb(); });
+    $("disconnect").addEventListener("click", () => { void disconnect(); });
+    $("start-motion").addEventListener("click", () => { void startMotion(); });
+    syncButtons();
+  </script>
+</body>
+</html>

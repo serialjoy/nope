@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#fff0d5" />
+    <meta name="description" content="Nope at a glance: a band on your wrist, a rule in your own words, and a small stake you choose." />
+    <title>Nope, at a glance</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/nope-icon.svg" />
+    <link rel="stylesheet" href="/bento.css" />
+  </head>
+  <body class="nb-page">
+    <header class="nb-bar">
+      <a class="nb-bar-brand" href="/"><img src="/assets/nope-wordmark.svg" alt="Nope" width="132" height="45" /></a>
+      <a class="nb-bar-open" href="/">Open the app</a>
+    </header>
+
+    <main>
+      <!--
+        Bento section. To use it on another page, copy this <section> together
+        with bento.css and bento.js. Tile order here is the reading order on
+        phones; bento.css places the tiles on the wider grids.
+      -->
+      <section class="nb" id="at-a-glance" aria-labelledby="nb-title">
+        <div class="nb-wrap">
+          <div class="nb-head">
+            <h2 class="nb-title" id="nb-title">Nope, at a glance.</h2>
+            <p class="nb-lede">A band on your wrist, a rule in your own words, and a small stake you choose.</p>
+          </div>
+
+          <ul class="nb-grid" role="list">
+            <li class="nb-tile nb-hero nb-tomato">
+              <svg class="nb-eyes" viewBox="0 0 82 42" role="img" aria-label="The Nope side-eye">
+                <g class="nb-eye">
+                  <ellipse class="nb-eye-white" cx="20" cy="21" rx="18" ry="19" />
+                  <g class="nb-pupil">
+                    <circle class="nb-eye-dot" cx="20" cy="21" r="6.6" />
+                    <circle class="nb-eye-white" cx="22.5" cy="18.5" r="2.3" />
+                  </g>
+                </g>
+                <g class="nb-eye">
+                  <ellipse class="nb-eye-white" cx="62" cy="21" rx="18" ry="19" />
+                  <g class="nb-pupil">
+                    <circle class="nb-eye-dot" cx="62" cy="21" r="6.6" />
+                    <circle class="nb-eye-white" cx="64.5" cy="18.5" r="2.3" />
+                  </g>
+                </g>
+              </svg>
+              <h3 class="nb-hero-title">Not on my watch.</h3>
+              <p class="nb-hero-copy"><span>Pick a habit.</span> <span>We’ll keep an eye on it.</span></p>
+            </li>
+
+            <li class="nb-tile nb-describe">
+              <div class="nb-art" aria-hidden="true">
+                <div class="nb-input">
+                  <span class="nb-input-text" data-nb-example="text">I want to stop doom-scrolling at night.</span>
+                  <span class="nb-input-send"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span>
+                </div>
+                <p class="nb-match">Matched to <span class="nb-chip" data-nb-example="label">Doom-scroll</span></p>
+              </div>
+              <h3 class="nb-label">Your words. Your rule.</h3>
+              <p class="nb-sr">Describe a habit in plain language, such as “I want to stop doom-scrolling at night”, and Nope matches it to a habit it knows, here Doom-scroll.</p>
+            </li>
+
+            <li class="nb-tile nb-habits">
+              <ul class="nb-habit-grid" role="list">
+                <li class="nb-habit nb-butter"><img src="/assets/tiles/scrolling.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Doom-scroll</span></li>
+                <li class="nb-habit nb-bubblegum"><img src="/assets/tiles/nail_biting.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Nail biting</span></li>
+                <li class="nb-habit nb-forest"><img src="/assets/tiles/vaping.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Vaping</span></li>
+                <li class="nb-habit nb-tomato"><img src="/assets/tiles/smoking.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Smoking</span></li>
+                <li class="nb-habit nb-bubblegum"><img src="/assets/tiles/porn.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Porn</span></li>
+                <li class="nb-habit nb-forest"><img src="/assets/tiles/snacking.png" alt="" width="96" height="96" loading="lazy" decoding="async" /><span>Snacks</span></li>
+              </ul>
+              <h3 class="nb-label">Six habits to start with.</h3>
+            </li>
+
+            <li class="nb-tile nb-stake">
+              <div class="nb-art">
+                <fieldset class="nb-amounts">
+                  <legend class="nb-sr">Example stake</legend>
+                  <div class="nb-amounts-row">
+                    <label><input type="radio" name="nb-stake" value="1" /><span>$1</span></label>
+                    <label><input type="radio" name="nb-stake" value="5" checked /><span>$5</span></label>
+                    <label><input type="radio" name="nb-stake" value="10" /><span>$10</span></label>
+                  </div>
+                </fieldset>
+              </div>
+              <h3 class="nb-label">Set your stake.</h3>
+            </li>
+
+            <li class="nb-tile nb-first nb-butter">
+              <div class="nb-art" aria-hidden="true">
+                <div class="nb-note">
+                  <img src="/assets/nope-icon.svg" alt="" width="38" height="38" />
+                  <p><b>Caught a loop?</b><span>Take a breath.</span> <span>You can choose again.</span></p>
+                </div>
+              </div>
+              <h3 class="nb-label">First time, a nudge.</h3>
+              <p class="nb-sr">The nudge reads: Caught a loop? Take a breath. You can choose again.</p>
+            </li>
+
+            <li class="nb-tile nb-next nb-bubblegum">
+              <div class="nb-art" aria-hidden="true"><span class="nb-big">$<span data-nb-amount>5</span></span></div>
+              <h3 class="nb-label">Next time, your stake.</h3>
+            </li>
+
+            <li class="nb-tile nb-reset nb-forest">
+              <div class="nb-art" aria-hidden="true">
+                <svg class="nb-loop" viewBox="0 0 24 24"><path d="M19.4 15a8 8 0 1 1-1.9-8.3L21 10" /><path d="M21 4v6h-6" /></svg>
+              </div>
+              <h3 class="nb-label">Then it resets.</h3>
+            </li>
+
+            <li class="nb-tile nb-band nb-butter">
+              <div class="nb-strap" aria-hidden="true">
+                <span class="nb-strap-disc">
+                  <svg viewBox="0 0 82 42">
+                    <ellipse class="nb-eye-white" cx="20" cy="21" rx="18" ry="19" />
+                    <ellipse class="nb-eye-white" cx="62" cy="21" rx="18" ry="19" />
+                    <circle class="nb-eye-dot" cx="30" cy="21" r="6.6" />
+                    <circle class="nb-eye-dot" cx="72" cy="21" r="6.6" />
+                    <circle class="nb-eye-white" cx="32.5" cy="18.5" r="2.3" />
+                    <circle class="nb-eye-white" cx="74.5" cy="18.5" r="2.3" />
+                  </svg>
+                </span>
+              </div>
+              <h3 class="nb-label">The band keeps watch.</h3>
+            </li>
+
+            <li class="nb-tile nb-pause">
+              <label class="nb-switch">
+                <input type="checkbox" role="switch" checked aria-label="Example rule" />
+                <span class="nb-switch-track" aria-hidden="true"></span>
+                <span class="nb-switch-state" aria-hidden="true"></span>
+              </label>
+              <h3 class="nb-label">Pause anytime.</h3>
+            </li>
+
+            <li class="nb-tile nb-alarm">
+              <div class="nb-art" aria-hidden="true">
+                <span class="nb-disc">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.6 2H4.9z" />
+                    <path d="M10 21a2.2 2.2 0 0 0 4 0" />
+                    <path class="nb-disc-gap" d="M4 4l16 16" />
+                    <path class="nb-disc-slash" d="M4 4l16 16" />
+                  </svg>
+                </span>
+              </div>
+              <h3 class="nb-label">False alarm? Say so.</h3>
+            </li>
+
+            <li class="nb-tile nb-teach nb-bubblegum">
+              <div class="nb-art" aria-hidden="true">
+                <div class="nb-sample">
+                  <span class="nb-rec"></span>
+                  <svg class="nb-trace" viewBox="0 0 200 40" preserveAspectRatio="none"><path d="M2 20h30c6 0 6-12 12-12s6 26 12 26 6-30 12-30 6 32 12 32 6-24 12-24 6 16 12 16 6-10 12-10 5 2 10 2h72" /></svg>
+                  <span class="nb-chip">10 sec</span>
+                </div>
+              </div>
+              <h3 class="nb-label">Not on the list? Show Nope.</h3>
+            </li>
+
+            <li class="nb-tile nb-preview">
+              <div class="nb-art" aria-hidden="true"><span class="nb-try">Try it</span></div>
+              <h3 class="nb-label">Try it first. No charge.</h3>
+            </li>
+
+            <li class="nb-tile nb-activity nb-forest">
+              <div class="nb-art" aria-hidden="true">
+                <svg class="nb-log" viewBox="0 0 56 40">
+                  <circle class="nb-log-nudge" cx="5" cy="6" r="4" /><rect x="15" y="3" width="38" height="6" rx="3" />
+                  <circle class="nb-log-stake" cx="5" cy="20" r="4" /><rect x="15" y="17" width="24" height="6" rx="3" />
+                  <circle class="nb-log-nudge" cx="5" cy="34" r="4" /><rect x="15" y="31" width="32" height="6" rx="3" />
+                </svg>
+              </div>
+              <h3 class="nb-label">See what happened.</h3>
+            </li>
+          </ul>
+
+          <p class="nb-fine">The first time it happens, you get a nudge. The next time, your stake applies and the cycle starts over. A false alarm doesn’t count. For adults 18+.</p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/bento.js"></script>
+  </body>
+</html>
