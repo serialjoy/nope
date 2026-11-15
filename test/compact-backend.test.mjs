@@ -70,8 +70,8 @@ async function createCompactRule(baseUrl, { description = "I want to stop scroll
   return result.body.rule;
 }
 
-function event(ruleId, eventId, phase) {
-  return { bandNumber: 58, ruleId, eventId, phase };
+function event(ruleId, eventId, phase, occurrenceId) {
+  return { bandNumber: 58, ruleId, eventId, phase, ...(occurrenceId ? { occurrenceId } : {}) };
 }
 
 test("Decision API classifier uses choice schema and maps unsupported to null", async () => {
@@ -181,44 +181,69 @@ test("compact rules validate their catalog and fixed two-stage schema", async ()
   }, { payments: payments.service });
 });
 
-test("corrections honor server grace, charge once, and stop/pause/edit terminate an episode", async () => {
+test("corrections warn first, charge once after a new occurrence, and stop/pause/edit terminate an episode", async () => {
   let now = Date.parse("2026-11-14T12:00:00.000Z");
   const payments = fakePayments();
   await withApp(async ({ baseUrl }) => {
     const rule = await createCompactRule(baseUrl);
-    const started = await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "start", "started") });
-    assert.deepEqual(started.body.event.correction, { stage: 1, status: "preview" });
+    const started = await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "start", "started", "first-occurrence") });
+    assert.equal(started.body.event.correction.stage, 1);
+    assert.equal(started.body.event.correction.status, "preview");
+    const warningEpisodeId = started.body.event.correction.episodeId;
+    assert.equal(typeof warningEpisodeId, "string");
     now += 59_000;
     const early = await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "early", "continued") });
-    assert.deepEqual(early.body.event.correction, { stage: 1, status: "preview" });
+    assert.equal(early.body.event.correction.stage, 1);
+    assert.equal(early.body.event.correction.status, "preview");
     assert.equal(payments.charges.length, 0);
     now += 1_000;
-    const charged = await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "charge", "continued") });
+    const lateContinued = await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "late-continued", "continued") });
+    assert.equal(lateContinued.body.event.correction.stage, 1);
+    assert.equal(lateContinued.body.event.correction.status, "preview");
+    assert.equal(payments.charges.length, 0);
+
+    const stopped = await request(baseUrl, `/api/rules/${rule.id}/stop`, {
+      method: "POST", body: { episodeId: warningEpisodeId, reason: "stopped" },
+    });
+    assert.equal(stopped.response.status, 200);
+    const charged = await request(baseUrl, "/api/events", {
+      method: "POST", body: event(rule.id, "charge", "started", "charge-occurrence"),
+    });
+    assert.equal(charged.body.event.correction.stage, 2);
     assert.equal(charged.body.event.correction.status, "demo");
     assert.equal(payments.charges.length, 1);
-    await request(baseUrl, "/api/events", { method: "POST", body: event(rule.id, "repeat", "continued") });
+    await request(baseUrl, "/api/events", {
+      method: "POST", body: event(rule.id, "repeat", "started", "charge-occurrence"),
+    });
     assert.equal(payments.charges.length, 1);
 
     const stopRule = await createCompactRule(baseUrl, { behaviorId: "snacking", penaltyAmount: 1 });
-    await request(baseUrl, "/api/events", { method: "POST", body: event(stopRule.id, "stop-start", "started") });
-    assert.deepEqual((await request(baseUrl, `/api/rules/${stopRule.id}/stop`, { method: "POST", body: {} })).body, { ok: true });
+    const stopStarted = await request(baseUrl, "/api/events", {
+      method: "POST", body: event(stopRule.id, "stop-start", "started", "stop-occurrence"),
+    });
+    const stopEpisodeId = stopStarted.body.event.correction.episodeId;
+    assert.equal(typeof stopEpisodeId, "string");
+    assert.equal((await request(baseUrl, `/api/rules/${stopRule.id}/stop`, {
+      method: "POST", body: { episodeId: stopEpisodeId, reason: "stopped" },
+    })).response.status, 200);
     now += 61_000;
     const afterStop = await request(baseUrl, "/api/events", { method: "POST", body: event(stopRule.id, "after-stop", "continued") });
     assert.equal(afterStop.body.event.correction, undefined);
     assert.equal(payments.charges.length, 1);
 
     const editRule = await createCompactRule(baseUrl, { penaltyAmount: 1 });
-    await request(baseUrl, "/api/events", { method: "POST", body: event(editRule.id, "edit-start", "started") });
+    await request(baseUrl, "/api/events", { method: "POST", body: event(editRule.id, "edit-start", "started", "edit-first") });
     const edited = await request(baseUrl, `/api/rules/${editRule.id}`, {
       method: "PATCH", body: { description: "Stop scrolling after work", behaviorId: "scrolling", penaltyAmount: 10 },
     });
     assert.equal(edited.body.rule.penaltyAmount, 10);
-    now += 61_000;
     await request(baseUrl, "/api/events", { method: "POST", body: event(editRule.id, "old-episode", "continued") });
     assert.equal(payments.charges.length, 1);
-    await request(baseUrl, "/api/events", { method: "POST", body: event(editRule.id, "new-start", "started") });
-    now += 61_000;
-    await request(baseUrl, "/api/events", { method: "POST", body: event(editRule.id, "new-charge", "continued") });
+    const editedCharge = await request(baseUrl, "/api/events", {
+      method: "POST", body: event(editRule.id, "new-charge", "started", "edit-new-occurrence"),
+    });
+    assert.equal(editedCharge.body.event.correction.stage, 2);
+    assert.equal(editedCharge.body.event.correction.status, "demo");
     assert.equal(payments.charges.at(-1).amountDollars, 10);
 
     await request(baseUrl, `/api/rules/${editRule.id}`, { method: "PATCH", body: { enabled: false } });
@@ -233,14 +258,25 @@ test("completed episodes survive a restart and legacy rules never charge", async
   let app = await startApp({ dataDirectory, payments: payments.service, clock: () => new Date(now) });
   try {
     const compact = await createCompactRule(app.baseUrl, { penaltyAmount: 1 });
-    await request(app.baseUrl, "/api/events", { method: "POST", body: event(compact.id, "restart-start", "started") });
-    now += 60_000;
-    await request(app.baseUrl, "/api/events", { method: "POST", body: event(compact.id, "restart-charge", "continued") });
+    const warning = await request(app.baseUrl, "/api/events", {
+      method: "POST", body: event(compact.id, "restart-start", "started", "restart-warning"),
+    });
+    const warningEpisodeId = warning.body.event.correction.episodeId;
+    assert.equal(typeof warningEpisodeId, "string");
+    assert.equal((await request(app.baseUrl, `/api/rules/${compact.id}/stop`, {
+      method: "POST", body: { episodeId: warningEpisodeId, reason: "stopped" },
+    })).response.status, 200);
+    const charged = await request(app.baseUrl, "/api/events", {
+      method: "POST", body: event(compact.id, "restart-charge", "started", "restart-charge-occurrence"),
+    });
+    assert.equal(charged.body.event.correction.status, "demo");
     assert.equal(payments.charges.length, 1);
 
     await stopApp(app);
     app = await startApp({ dataDirectory, payments: payments.service, clock: () => new Date(now) });
-    const replay = await request(app.baseUrl, "/api/events", { method: "POST", body: event(compact.id, "restart-replay", "continued") });
+    const replay = await request(app.baseUrl, "/api/events", {
+      method: "POST", body: event(compact.id, "restart-replay", "started", "restart-charge-occurrence"),
+    });
     assert.equal(replay.body.event.correction.status, "demo");
     assert.equal(payments.charges.length, 1);
 

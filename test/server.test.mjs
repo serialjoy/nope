@@ -200,7 +200,7 @@ test("duplicate detector events are returned but emitted through SSE once", asyn
       assert.equal(duplicate.response.status, 200);
       await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(sse.received.length, 1);
-      assert.deepEqual(sse.received[0], { ...event, source: "detector" });
+      assert.deepEqual(sse.received[0], { ...event, occurrenceId: null, source: "detector" });
     } finally {
       sse.close();
     }

@@ -30,6 +30,7 @@ import {
   validateDetectorEvent,
   validateCompactRuleDraft,
   validateCompactRulePatch,
+  validateDetectorStop,
   validateRuleDraft,
   validateRulePatch,
 } from "./lib/validation.mjs";
@@ -271,6 +272,12 @@ export function createApp({
     status: (...args) => getPayments().status(...args),
     createSetup: (...args) => getPayments().createSetup(...args),
     completeSetup: (...args) => getPayments().completeSetup(...args),
+    prepareCharge: (...args) => {
+      const service = getPayments();
+      return typeof service.prepareCharge === "function"
+        ? service.prepareCharge(...args)
+        : { status: "ready", paymentSnapshot: null };
+    },
     charge: (...args) => getPayments().charge(...args),
   };
   const corrections = new CorrectionsEngine({ store, payments: paymentService, now: clock });
@@ -279,6 +286,11 @@ export function createApp({
     const value = clock();
     const date = value instanceof Date ? value : new Date(value);
     return date.toISOString();
+  }
+
+  async function presentRule(rule) {
+    if (!rule) return rule;
+    return { ...rule, warningArmed: await store.warningArmed(rule.id) };
   }
 
   function broadcastDetection(event) {
@@ -410,7 +422,8 @@ export function createApp({
       }
 
       if (url.pathname === "/api/rules" && method === "GET") {
-        sendJson(response, 200, { rules: await store.list() });
+        const rules = await store.list();
+        sendJson(response, 200, { rules: await Promise.all(rules.map((rule) => presentRule(rule))) });
         return;
       }
 
@@ -425,15 +438,18 @@ export function createApp({
         const rule = isCompactRulePayload(submittedRule)
           ? await store.create(buildCompactRule(validateCompactRuleDraft(submittedRule), identity))
           : await store.create({ ...validateRuleDraft(submittedRule), ...identity });
-        sendJson(response, 201, { rule });
+        sendJson(response, 201, { rule: await presentRule(rule) });
         return;
       }
 
       const stopRuleId = routeRuleStopId(url.pathname);
       if (stopRuleId && method === "POST") {
-        await readJson(request); // Accepts {}, never a client-supplied timestamp.
-        await corrections.stop(stopRuleId);
-        sendJson(response, 200, { ok: true });
+        const stopped = await corrections.stop(stopRuleId, validateDetectorStop(await readJson(request)));
+        sendJson(response, 200, {
+          ok: true,
+          episodeId: stopped.episode?.id ?? null,
+          warningArmed: stopped.warningArmed,
+        });
         return;
       }
 
@@ -456,6 +472,7 @@ export function createApp({
             return store.update(ruleId, change, {
               endActiveEpisodesAt: endsEpisode ? changedAt : null,
               endReason: patch.draft ? "rule_edited" : "rule_paused",
+              resetWarning: Boolean(patch.draft) && patch.draft.behaviorId !== current.behaviorId,
             });
           }
           const change = validateRulePatch(body);
@@ -464,7 +481,7 @@ export function createApp({
             endReason: "rule_paused",
           });
         });
-        sendJson(response, 200, { rule });
+        sendJson(response, 200, { rule: await presentRule(rule) });
         return;
       }
       if (ruleId && method === "DELETE") {

@@ -1,6 +1,6 @@
 # Nope
 
-Nope is a local, mobile-friendly habit-support app. Describe a habit, let Gemini classify it, choose a $1, $5, or $10 test consequence, and get a two-stage response: an in-app nudge first, then a one-time Stripe test charge only if the behavior continues for 60 seconds.
+Nope is a local, mobile-friendly habit-support app. Describe a habit, let Gemini classify it, choose a $1, $5, or $10 test consequence, and get a two-stage response: a nudge on the first distinct occurrence, then one Stripe test-charge attempt on the next distinct occurrence.
 
 ## Run locally
 
@@ -77,19 +77,29 @@ Send detector observations to `POST /api/events`:
   "bandNumber": 58,
   "ruleId": "an-id-from-GET-/api/rules",
   "eventId": "unique-observation-id",
-  "phase": "started"
+  "phase": "started",
+  "occurrenceId": "gesture-2026-11-14T12:00:00.000Z"
 }
 ```
 
-`phase` is `started`, `continued`, or `stopped`; optional `occurredAt` is display-only. `started` sets the server clock, `continued` before 60 seconds sends the in-app nudge, and `continued` after 60 seconds makes the selected one-time test charge. `stopped`, or `POST /api/rules/:id/stop` with `{}`, ends the episode. Paused rules return `409`; the wrong band returns `400`.
+`phase` is `started`, `continued`, or `stopped`; optional `occurredAt` is display-only. `occurrenceId` is optional but recommended: reuse it for packets from one detected gesture and use a new value only for a genuinely distinct occurrence. The first accepted occurrence returns a nudge and arms the rule. The next distinct occurrence reserves and attempts the configured test penalty immediately. `continued` never advances a nudge by elapsed time. Without `occurrenceId`, the detector must send `stopped` (or the app must call the stop endpoint) before another `started` can count as distinct.
 
-Use a fresh `eventId` for every observation and reuse that same ID only to retry it. Start only one new episode with `started`; do not repeatedly send `started` for the same episode.
+The app can close or invalidate the active nudge with:
 
-`GET /api/events` is an SSE stream with named `detection` events. When applicable, an event includes `correction` with `stage`, `status`, and optional `amountDollars`; stopped events and events without an active episode can omit it.
+```json
+POST /api/rules/:id/stop
+{ "episodeId": "episode_from_correction", "reason": "stopped" }
+```
+
+`reason: "stopped"` closes that occurrence but retains the armed warning. `reason: "false_alarm"` clears only that active stage-one warning. A stale `episodeId` returns `409` and cannot affect a newer occurrence. Empty `{}` remains compatible as `stopped`.
+
+Use a fresh `eventId` for every transport observation and reuse that same ID only to retry it. Reusing an `occurrenceId` never creates another occurrence or charge. A successful test charge (or demo penalty) resets the rule to its next nudge. Pending outcomes remain armed and reuse their original key and amount; after a confirmed failure, a later distinct occurrence may make a new attempt.
+
+`GET /api/events` is an SSE stream with named `detection` events. When applicable, an event includes `correction` with `stage`, `status`, `episodeId`, `warningArmed`, and optional `amountDollars`, `paymentId`, or safe `message`. Stage one is `preview`; stage two is authoritative `demo`, `succeeded`, `pending`, `failed`, or `not_connected`.
 
 ## Persistence and safeguards
 
-`.data/rules.json` stores rules, episodes, and the last 1,000 event receipts. Durable charge keys and outcomes prevent duplicate charges across restarts. Do not delete `.data` or reset state while a charge is pending.
+`.data/rules.json` stores rules, armed warnings, episodes, durable occurrence identities, and the last 1,000 event receipts. Durable charge keys, frozen payment inputs, and outcomes prevent duplicate charges across restarts. Do not delete `.data` or reset state while a charge is pending.
 
 `.data/stripe-payments.json` stores only this app's Stripe customer/card state, never API keys.
 
@@ -102,4 +112,4 @@ npm run check
 npm test
 ```
 
-Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, one $1 test charge after 64 seconds with no duplicate charge from repeated events, stop/pause behavior, and 25 automated checks, including recording-request persistence, validation, cancellation, and idempotent acknowledgments. See [the simplified flow](tasks/simplify-flow.md) and [Teach Nope](tasks/teach-nope.md).
+Verified coverage includes live Gemini smoking/vaping/porn/unsupported paths, the hosted Stripe test-card callback, repeat-occurrence charge deduplication, stop/pause behavior, and recording-request persistence, validation, cancellation, and idempotent acknowledgments. See [the simplified flow](tasks/simplify-flow.md) and [Teach Nope](tasks/teach-nope.md).

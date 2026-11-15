@@ -43,6 +43,10 @@ test("demo and invalid keys never call Stripe or report a connected card", async
       cardLabel: null,
       message: "Add a Stripe test key to connect a test card.",
     });
+    assert.deepEqual(await demo.prepareCharge(), {
+      status: "demo",
+      message: "No Stripe test key is configured, so no money was charged.",
+    });
     assert.deepEqual(await demo.charge({ amountDollars: 5, idempotencyKey: "episode-1" }), {
       status: "demo",
       message: "No Stripe test key is configured, so no money was charged.",
@@ -242,8 +246,15 @@ test("off-session charges use capped cents, test-only confirmation, and the supp
     await payments.createSetup();
     await payments.completeSetup("cs_test_enditt_setup");
     stage = "charge";
+    const prepared = await payments.prepareCharge();
+    assert.deepEqual(prepared, {
+      status: "ready",
+      paymentSnapshot: { customerId: "cus_enditt", paymentMethodId: "pm_enditt" },
+    });
 
-    assert.deepEqual(await payments.charge({ amountDollars: 5, idempotencyKey: "episode-123" }), {
+    assert.deepEqual(await payments.charge({
+      amountDollars: 5, idempotencyKey: "episode-123", paymentSnapshot: prepared.paymentSnapshot,
+    }), {
       status: "succeeded",
       paymentId: "pi_enditt_penalty",
     });
@@ -315,8 +326,8 @@ test("charge never calls Stripe for invalid input or a missing card and never ma
         fetchImpl: async () => json({ id: "pi_processing", livemode: false, status: "processing" }),
       });
       const pending = await processing.charge({ amountDollars: 1, idempotencyKey: "episode-processing" });
-      assert.equal(pending.status, "failed");
-      assert.match(pending.message, /still processing/i);
+      assert.equal(pending.status, "pending");
+      assert.match(pending.message, /still being confirmed/i);
     } finally {
       await rm(configuredDirectory, { recursive: true, force: true });
     }
