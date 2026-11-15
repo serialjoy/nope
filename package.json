@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.mjs",
     "test": "node --test",
-    "check": "for file in config.mjs server.mjs public/app.js lib/*.mjs; do node --check \"$file\" || exit 1; done"
+    "check": "for file in config.mjs server.mjs public/app.js lib/*.mjs public/detector/*.mjs scripts/*.mjs; do node --check \"$file\" || exit 1; done",
+    "setup:detector": "node scripts/setup-detector.mjs"
   },
   "engines": {
     "node": ">=24"

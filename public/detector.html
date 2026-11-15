@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nope · Band detector</title>
+<style>
+  :root { --bg:#fff; --ink:#111; --muted:#666; --card:#f4f4f2; --accent:#ffd84d; --ok:#1a7f4b; --bad:#b3261e; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121212; --ink:#f2f2f2; --muted:#a0a0a0; --card:#1e1e1e; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 2rem; line-height: 1.1; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border-radius: 16px; padding: 14px 16px; margin: 12px 0; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; font-weight:600; border:0; border-radius:999px; padding:10px 18px; background:var(--ink); color:var(--bg); cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.secondary { background:transparent; color:var(--ink); border:1px solid var(--muted); }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; background:var(--accent); color:#111; font-size:.85rem; font-weight:600; }
+  .bar { height:14px; border-radius:7px; background:rgba(128,128,128,.25); overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0; background:var(--ink); transition: width .25s; }
+  .meter { margin: 8px 0; }
+  .meter b { display:flex; justify-content:space-between; font-weight:600; }
+  #log { list-style:none; margin:0; padding:0; max-height:260px; overflow:auto; font-size:.92rem; }
+  #log li { padding:6px 0; border-bottom:1px solid rgba(128,128,128,.25); }
+  #log time { color:var(--muted); margin-right:6px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Band detector</h1>
+  <p class="lead">Listens through the band, spots a lighter or a can opening, and tells <a href="/">Nope</a>. Use Chrome or Edge.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="connect" disabled>Connect band</button>
+      <button id="disconnect" class="secondary" disabled>Disconnect</button>
+      <span class="pill" id="state">starting…</span>
+    </div>
+    <p class="muted" id="hint">Double-tap the band first (its light blinks blue), then press Connect and pick it from the list.</p>
+    <p class="muted" id="model">Sound model: loading…</p>
+  </div>
+
+  <div class="card" aria-live="polite">
+    <div class="meter"><b><span>Lighter</span><span id="p-lighter">–</span></b><div class="bar"><i id="b-lighter"></i></div></div>
+    <div class="meter"><b><span>Can opening</span><span id="p-can_opening">–</span></b><div class="bar"><i id="b-can_opening"></i></div></div>
+    <p class="muted">Wrist motion: <b id="motion">–</b> · Last check: <span id="timing">–</span> · Listening: <span id="listening">–</span></p>
+    <label class="muted"><input type="checkbox" id="require-motion" checked> Only count a sound if the wrist moved (fewer false alarms)</label>
+  </div>
+
+  <div class="card">
+    <b>Detections</b>
+    <ul id="log"><li class="muted">Nothing yet.</li></ul>
+  </div>
+
+  <p class="muted">Only lighter becomes a Nope habit (Smoking). Make a Smoking rule in Nope first. The sound never leaves this computer.</p>
+</main>
+<script type="module" src="/detector/page.mjs"></script>
+</body>
+</html>
