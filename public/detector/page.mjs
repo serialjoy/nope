@@ -1,0 +1,165 @@
+// The detector page: band (Web Bluetooth) -> CLAP in the browser -> Nope's /api/events.
+import { Band, BandAudio, SimTransport } from "/vendor/vexo/index.js";
+import { Detector, NopeReporter, SAMPLE_RATE } from "./core.mjs";
+import { loadClap } from "./clap.mjs";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const pretend = params.has("pretend");             // test only: a simulated band instead of Bluetooth
+const replay = params.get("replay");               // test only: ?replay=/detector/test/x.wav&motion=/detector/test/x.json
+
+let band = null;
+let sound = null;
+let loop = null;
+let classify = null;
+let bandNumber = 58;
+
+function setState(text) { $("state").textContent = text; }
+function log(text, cls = "") {
+  const list = $("log");
+  if (list.firstElementChild?.classList.contains("muted")) list.innerHTML = "";
+  const li = document.createElement("li");
+  if (cls) li.className = cls;
+  li.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>`;
+  li.append(text);
+  list.prepend(li);
+}
+
+const reporter = new NopeReporter({ log: (m, extra) => log(extra ? `${m} → ${extra.status ?? ""} stage ${extra.stage ?? ""}` : m) });
+const detector = new Detector({
+  classify: (audio) => classify(audio),
+  onEvent: (event) => {
+    const label = event.kind === "lighter" ? "Lighter" : "Can opening";
+    log(`${label} detected (${Math.round(event.confidence * 100)}%${event.motion_active ? ", wrist moving" : ""})`, "hit");
+    reporter.report(event).catch((error) => log(`Nope: ${error.message}`));
+  },
+});
+detector.options.requireMotion = $("require-motion").checked;
+$("require-motion").addEventListener("change", (e) => { detector.options.requireMotion = e.target.checked; });
+
+function render() {
+  const { scores, motionActive, silent } = detector.status;
+  for (const kind of ["lighter", "can_opening"]) {
+    const p = scores[kind] ?? 0;
+    $(`p-${kind}`).textContent = silent || scores[kind] === undefined ? "–" : `${Math.round(p * 100)}%`;
+    $(`b-${kind}`).style.width = `${Math.round(p * 100)}%`;
+  }
+  $("motion").textContent = motionActive ? "moving" : "still";
+  $("listening").textContent = silent ? "quiet" : "sound";
+}
+
+function startLoop() {
+  let busy = false;
+  loop = setInterval(async () => {
+    if (busy || !classify) return;
+    busy = true;
+    const t = performance.now();
+    try {
+      await detector.step();
+      $("timing").textContent = `${Math.round(performance.now() - t)} ms`;
+      render();
+    } catch (error) {
+      log(`Error: ${error.message}`);
+    } finally {
+      busy = false;
+    }
+  }, 1000);
+}
+
+async function connect() {
+  $("connect").disabled = true;
+  setState("connecting…");
+  try {
+    band = await Band.connect(bandNumber, pretend ? { transport: new SimTransport(bandNumber) } : {});   // must come from the click that called this
+    band.on("motion", (m) => detector.feedMotion(m.gx, m.gy, m.gz));
+    sound = new BandAudio((samples) => detector.feedAudio(samples));
+    band.on("audio", (packet) => sound.push(packet));
+    band.on("disconnect", ({ reason }) => {
+      if (reason !== "closed") { setState("band lost"); log(`The band disconnected (${reason}). Double-tap it and connect again.`); }
+      cleanup();
+    });
+    await band.configure({ motion: 50, sensors: "both", audio: true });
+    setState(`listening to ${band.name}`);
+    $("hint").textContent = "The band's light is solid blue while the microphone is on.";
+    $("disconnect").disabled = false;
+    log(`Connected to ${band.name}.`);
+  } catch (error) {
+    setState("not connected");
+    log(`Could not connect: ${error.message}`);
+    $("connect").disabled = !classify;
+  }
+}
+
+async function cleanup() {
+  await reporter.stopAll().catch(() => {});
+  sound?.close?.();
+  sound = band = null;
+  $("disconnect").disabled = true;
+  $("connect").disabled = !classify;
+}
+
+$("connect").addEventListener("click", connect);
+$("disconnect").addEventListener("click", async () => {
+  try { await band.configure({ motion: 0, audio: false }); await band.disconnect(); } catch { /* already gone */ }
+  setState("disconnected");
+  cleanup();
+});
+
+// --- test mode: play a recording instead of a band -----------------------------------------------------
+function parseWav(buffer) {                          // 16-bit PCM -> Float32 at 16 kHz
+  const v = new DataView(buffer);
+  let p = 12, rate = 16000, channels = 1, start = 0, length = 0;
+  while (p + 8 <= v.byteLength) {
+    const id = String.fromCharCode(v.getUint8(p), v.getUint8(p + 1), v.getUint8(p + 2), v.getUint8(p + 3));
+    const n = v.getUint32(p + 4, true);
+    if (id === "fmt ") { channels = v.getUint16(p + 10, true); rate = v.getUint32(p + 12, true); }
+    if (id === "data") { start = p + 8; length = Math.min(n, v.byteLength - start); break; }
+    p += 8 + n + (n & 1);
+  }
+  const frames = Math.floor(length / 2 / channels);
+  const x = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) x[i] = v.getInt16(start + i * channels * 2, true) / 32768;
+  if (rate === SAMPLE_RATE) return x;
+  const out = new Float32Array(Math.round(frames * SAMPLE_RATE / rate));
+  const k = (frames - 1) / (out.length - 1);
+  for (let i = 0; i < out.length; i++) { const t = i * k, j = Math.floor(t); out[i] = x[j] * (1 - (t - j)) + x[Math.min(j + 1, frames - 1)] * (t - j); }
+  return out;
+}
+
+async function playRecording() {
+  const audio = parseWav(await (await fetch(replay)).arrayBuffer());
+  const motion = params.get("motion") ? await (await fetch(params.get("motion"))).json() : [];
+  setState("replaying a recording");
+  log(`Replaying ${replay} (${(audio.length / SAMPLE_RATE).toFixed(0)} s)`);
+  const chunk = SAMPLE_RATE / 10;                    // 100 ms at a time, in real time
+  for (let i = 0, step = 0; i * chunk < audio.length; i++, step++) {
+    detector.feedAudio(audio.subarray(i * chunk, (i + 1) * chunk));
+    for (const [gx, gy, gz] of motion.slice(step * 5, step * 5 + 5)) detector.feedMotion(gx, gy, gz);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  setState("replay finished");
+}
+
+// --- start ---------------------------------------------------------------------------------------------
+(async () => {
+  try {
+    const config = await (await fetch("/api/config")).json();
+    bandNumber = config.bandNumber ?? bandNumber;
+    reporter.bandNumber = bandNumber;
+  } catch { /* keep the default */ }
+  if (!navigator.bluetooth && !replay && !pretend) {
+    $("hint").textContent = "This browser has no Web Bluetooth. Open this page in Chrome or Edge on a computer.";
+  }
+  const started = performance.now();
+  try {
+    classify = await loadClap((text) => { $("model").textContent = `Sound model: ${text}`; });
+    $("model").textContent = `Sound model: ready (loaded in ${((performance.now() - started) / 1000).toFixed(1)} s, runs on this computer)`;
+    setState(replay ? "ready" : "ready: connect the band");
+    startLoop();
+    if (replay) playRecording();
+    else $("connect").disabled = !navigator.bluetooth && !pretend;
+  } catch (error) {
+    $("model").textContent = `Sound model failed to load: ${error.message}. Run "npm run setup:detector" once.`;
+    setState("model missing");
+  }
+})();

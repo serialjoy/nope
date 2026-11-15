@@ -7,3 +7,6 @@ coverage/
 vexo-open-kit
 .DS_Store
 *.log
+public/vendor/
+public/models/
+public/detector/test/

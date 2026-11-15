@@ -47,8 +47,10 @@ const MIME_TYPES = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".mjs", "text/javascript; charset=utf-8"],
+  [".onnx", "application/octet-stream"],
   [".svg", "image/svg+xml"],
   [".txt", "text/plain; charset=utf-8"],
+  [".wasm", "application/wasm"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
 ]);
 
